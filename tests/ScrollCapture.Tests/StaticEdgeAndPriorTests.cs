@@ -74,6 +74,46 @@ public class StaticEdgeAndPriorTests
         Assert.False(r.Success);
     }
 
+    /// <summary>
+    /// Floating widgets (WeChat "jump to latest", hover toolbars) sit at a FIXED absolute
+    /// row range across frames, mid-frame — they offset-match at any candidate k. The
+    /// whole-frame static-row mask must strip them so the true overlap stays sharp.
+    /// </summary>
+    [Fact]
+    public void Detect_MidFrameConstantWidget_StillExact()
+    {
+        // durable pattern for the widget (contrasty so it is not mistaken for blank)
+        BitmapSource a = WithChrome(FrameAt(0), 0, 0, seed: 5);
+        BitmapSource b = WithChrome(FrameAt(180), 0, 0, seed: 5);
+        byte[] wa = FrameSimilarity.ToBgr32Buffer(a);
+        byte[] wb = FrameSimilarity.ToBgr32Buffer(b);
+        int widgetY = H / 2;
+        int widgetH = 40;
+        var rnd = new Random(91);
+        for (int y = widgetY; y < widgetY + widgetH; y++)
+        {
+            int row = y * W;
+            for (int x = 0; x < W; x += 2)
+            {
+                byte v = (byte)rnd.Next(40, 220);
+                // identical widget pixels at the SAME absolute y in both frames
+                for (int c = 0; c < 3; c++)
+                {
+                    wa[row + x * 4 + c] = v;
+                    wb[row + x * 4 + c] = v;
+                }
+            }
+        }
+        BitmapSource af = TestImages.CreateBgr32(wa, W, H);
+        BitmapSource bf = TestImages.CreateBgr32(wb, W, H);
+
+        OverlapResult r = Detector.Detect(af, bf);
+
+        Assert.True(r.Success, $"failed: {r.Note}");
+        Assert.InRange(r.OverlapHeight, 152, 168);
+        Assert.True(r.Confidence > 0.6, $"confidence degraded: {r.Confidence:F2}");
+    }
+
     [Fact]
     public void Prior_ExactPrior_DetectsQuicklyAndExactly()
     {

@@ -15,7 +15,9 @@ public sealed class ScrollController : IDisposable
 
     private int _wheelStep;
     private bool _cursorSaved;
+    private bool _anchorSet;
     private NativeMethods.POINT _originalCursor;
+    private NativeMethods.POINT _anchor;
 
     public IntPtr TargetRootHwnd { get; private set; } = IntPtr.Zero;
 
@@ -47,6 +49,8 @@ public sealed class ScrollController : IDisposable
 
         int anchorX = regionPhysical.X + Math.Max(1, regionPhysical.Width / 2);
         int anchorY = regionPhysical.Y + Math.Max(1, regionPhysical.Height / 2);
+        _anchor = new NativeMethods.POINT { X = anchorX, Y = anchorY };
+        _anchorSet = true;
         NativeMethods.SetCursorPos(anchorX, anchorY);
 
         try
@@ -104,12 +108,54 @@ public sealed class ScrollController : IDisposable
         NativeMethods.SendInput(1, new[] { input }, Marshal.SizeOf<NativeMethods.INPUT>());
     }
 
+    /// <summary>Moves the cursor back to the scroll anchor (just before each wheel event).</summary>
+    public void MoveCursorToAnchor()
+    {
+        if (_anchorSet)
+        {
+            NativeMethods.SetCursorPos(_anchor.X, _anchor.Y);
+        }
+    }
+
+    /// <summary>
+    /// Moves the cursor OUT of the capture region after scrolling, so hover-rendered
+    /// floating widgets (WeChat "jump to latest", chat toolbars) vanish before the frame
+    /// is taken — and the cursor itself never appears in any frame.
+    /// </summary>
+    public void MoveCursorOut(Int32Rect region)
+    {
+        try
+        {
+            // first choice: just above the region (window title area)
+            int x = region.X + Math.Max(1, region.Width / 2);
+            int y = region.Y - 24;
+            if (y < -64)
+            {
+                // no room above: left margin of the region
+                x = region.X - 40;
+                y = region.Y + Math.Max(1, region.Height / 2);
+                if (x < -64)
+                {
+                    // fully covering screen: into the taskbar strip at the bottom
+                    x = region.X + Math.Max(1, region.Width / 2);
+                    y = region.Y + region.Height - 12;
+                }
+            }
+            NativeMethods.SetCursorPos(x, y);
+        }
+        catch
+        {
+            // best effort
+        }
+    }
+
     /// <summary>Restores the original cursor position.</summary>
     public void Restore()
     {
         if (_cursorSaved)
         {
             _cursorSaved = false;
+            _anchorSet = false;
             NativeMethods.SetCursorPos(_originalCursor.X, _originalCursor.Y);
         }
     }

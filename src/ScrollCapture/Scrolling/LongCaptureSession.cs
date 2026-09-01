@@ -265,9 +265,11 @@ public sealed class LongCaptureSession : IDisposable
                 previousSnapshot = snapshot;
 
                 stopwatch.Restart();
+                _ownController?.MoveCursorToAnchor(); // cursor over target for the wheel
                 _scrollOnce();
                 int elapsed = (int)stopwatch.ElapsedMilliseconds;
                 await WaitForStabilityAsync(Math.Max(0, _options.DelayPerScrollMs - elapsed) * waitScale);
+                _ownController?.MoveCursorOut(_region); // hover widgets vanish before the frame
             }
         }
         catch (OperationCanceledException)

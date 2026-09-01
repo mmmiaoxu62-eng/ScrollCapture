@@ -1,4 +1,4 @@
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using OpenCvSharp;
@@ -14,7 +14,7 @@ public sealed record OverlapResult(bool Success, int OverlapHeight, double Confi
 /// Finds how many rows at the bottom of frame A are identical to the top of frame B
 /// (vertical overlap for scroll stitching). Pipeline:
 ///   0. static-edge mask: rows at the frame top/bottom margins that never change between
-///      frames (browser toolbar/sidebars, fixed bars) are excluded — they bait false peaks
+///      frames (browser toolbar/sidebars, fixed bars) are excluded 鈥?they bait false peaks
 ///   1. BGRA->gray + 1/4 downscale (OpenCV, INTER_AREA)
 ///   2. coarse scan (narrow around the supplied prior if any, else the whole window):
 ///      per-candidate row-wise robust mean-abs-diff (worst x% rows trimmed)
@@ -38,8 +38,7 @@ public sealed class OverlapDetector
     private const int TrimWorstRowsPercent = 8;
     private const int MinHeightForDetection = 240;
 
-    // static-edge (chrome) detection
-    private const double StaticMarginRatio = 0.12;      // top 12% / bottom 12% of frame
+    // static-row (chrome/floating UI) detection
     private const double StaticRowDiffThreshold = 1.6;  // avg abs diff between frames (gray 0..255)
     private const double StaticRowContrastMin = 5.0;    // row std must exceed this (skip blank margins)
 
@@ -70,30 +69,31 @@ public sealed class OverlapDetector
         (byte[] smallA, int sw, int sh) = Downscale(grayA, width, height);
         (byte[] smallB, _, _) = Downscale(grayB, width, height);
         bool[] staticMask = ComputeStaticMask(grayA, grayB, width, height);
+        bool[] staticMaskSmall = ComputeStaticMask(smallA, smallB, sw, sh);
 
         if (priorOverlapPx is double prior && prior >= MinOverlapRatio * height && prior <= MaxOverlapRatio * height)
         {
             OverlapResult narrowed = Scan(smallA, smallB, grayA, grayB, sw, sh, width, height,
-                staticMask, priorMinK: (int)((prior - 12) / DownscaleFactor),
+                staticMask, staticMaskSmall, priorMinK: (int)((prior - 12) / DownscaleFactor),
                 priorMaxK: (int)((prior + 12) / DownscaleFactor));
             if (narrowed.Success)
             {
                 return narrowed;
             }
-            // prior was wrong or too narrow — fall through to global scan
-            OverlapResult global = Scan(smallA, smallB, grayA, grayB, sw, sh, width, height, staticMask, null, null);
+            // prior was wrong or too narrow 鈥?fall through to global scan
+            OverlapResult global = Scan(smallA, smallB, grayA, grayB, sw, sh, width, height, staticMask, staticMaskSmall, null, null);
             return global.Success
                 ? global with { Note = (global.Note ?? "") + " | prior mismatch, global hit" }
                 : global;
         }
 
-        return Scan(smallA, smallB, grayA, grayB, sw, sh, width, height, staticMask, null, null);
+        return Scan(smallA, smallB, grayA, grayB, sw, sh, width, height, staticMask, staticMaskSmall, null, null);
     }
 
     private static OverlapResult Scan(
         byte[] smallA, byte[] smallB, byte[] grayA, byte[] grayB,
         int sw, int sh, int width, int height,
-        bool[] staticMask, int? priorMinK, int? priorMaxK)
+        bool[] staticMask, bool[] staticMaskSmall, int? priorMinK, int? priorMaxK)
     {
         int minK = Math.Max(1, (int)(sh * MinOverlapRatio));
         int maxK = Math.Min(sh - 2, (int)(sh * MaxOverlapRatio));
@@ -117,7 +117,7 @@ public sealed class OverlapDetector
         // descending: on ties prefer the LARGER overlap (more conservative delta)
         for (int k = maxK; k >= minK; k--)
         {
-            double score = RobustRowScore(smallA, smallB, sw, sh, sh, sh - k, 0, k, colStep: 2, TrimWorstRowsPercent, null);
+            double score = RobustRowScore(smallA, smallB, sw, sh, sh, sh - k, 0, k, colStep: 2, TrimWorstRowsPercent, staticMaskSmall);
             if (score < best)
             {
                 second = best;
@@ -203,41 +203,39 @@ public sealed class OverlapDetector
     }
 
     /// <summary>
-    /// Rows at the top/bottom margins that (a) barely differ between the two frames
-    /// (fixed chrome) and (b) carry contrast (not blank). Unlike content overlap rows,
-    /// these stay identical at ANY scroll offset and would otherwise produce fake peaks.
+    /// Rows that (a) barely differ between the two frames at the SAME absolute position
+    /// (fixed chrome, floating widgets like WeChat's "jump to latest" button) and
+    /// (b) carry contrast (not blank). Unlike real overlap rows 鈥?which only match when
+    /// A's bottom aligns to B's top 鈥?these match at ANY candidate offset and would
+    /// otherwise flatten the score curve, so they are excluded from the scoring rows.
     /// Masks are indexed by absolute row of frame B; the caller skips those rows.
     /// </summary>
     private static bool[] ComputeStaticMask(byte[] grayA, byte[] grayB, int width, int height)
     {
         var mask = new bool[height];
-        int margin = Math.Max(16, (int)(height * StaticMarginRatio));
-        foreach ((int start, int end) in new[] { (0, margin), (height - margin, height) })
+        for (int y = 0; y < height; y++)
         {
-            for (int y = start; y < end && y < height; y++)
+            long diff = 0;
+            long aSum = 0;
+            int n = 0;
+            long aSq = 0;
+            int rowA = y * width;
+            int rowB = y * width;
+            for (int x = 0; x < width; x += 3)
             {
-                long diff = 0;
-                long aSum = 0;
-                int n = 0;
-                long aSq = 0;
-                int rowA = y * width;
-                int rowB = y * width;
-                for (int x = 0; x < width; x += 3)
-                {
-                    int va = grayA[rowA + x];
-                    int vb = grayB[rowB + x];
-                    diff += Math.Abs(va - vb);
-                    aSum += va;
-                    aSq += (long)va * va;
-                    n++;
-                }
-                if (n == 0) continue;
-                double meanA = aSum / (double)n;
-                double stdA = Math.Sqrt(Math.Max(0, aSq / (double)n - meanA * meanA));
-                if (diff / (double)n <= StaticRowDiffThreshold && stdA >= StaticRowContrastMin)
-                {
-                    mask[y] = true;
-                }
+                int va = grayA[rowA + x];
+                int vb = grayB[rowB + x];
+                diff += Math.Abs(va - vb);
+                aSum += va;
+                aSq += (long)va * va;
+                n++;
+            }
+            if (n == 0) continue;
+            double meanA = aSum / (double)n;
+            double stdA = Math.Sqrt(Math.Max(0, aSq / (double)n - meanA * meanA));
+            if (diff / (double)n <= StaticRowDiffThreshold && stdA >= StaticRowContrastMin)
+            {
+                mask[y] = true;
             }
         }
         return mask;
@@ -294,7 +292,7 @@ public sealed class OverlapDetector
             int bAbs = bStart + j;
             if (staticMaskB != null && bAbs >= 0 && bAbs < staticMaskB.Length && staticMaskB[bAbs])
             {
-                continue; // fixed chrome — skip, it matches any offset
+                continue; // fixed chrome 鈥?skip, it matches any offset
             }
             int aBase = (aStart + j) * width;
             int bBase = bAbs * width;
@@ -332,3 +330,4 @@ public sealed class OverlapDetector
         return total / effectiveRows;
     }
 }
+
