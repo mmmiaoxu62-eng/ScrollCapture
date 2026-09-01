@@ -47,10 +47,10 @@ public class LongCaptureSessionTests
         Assert.Equal(SessionStopReason.ReachedBottom, result.Reason);
         Assert.Equal(6, result.FrameCount);
         Assert.NotNull(result.StitchedImage);
-        // tiny synthetic frames cannot be vision-matched: pasting uses expected-delta
-        // estimates and duplicate skips — total must stay within sane bounds.
-        Assert.InRange(result.StitchedImage!.PixelHeight, FrameHeight, 6 * FrameHeight);
-        Assert.Contains(result.StitchSteps!, s => s.Skipped);
+        // tiny synthetic frames cannot be vision-matched: every additional frame is
+        // duplicate-safety-skipped (never estimated) => canvas == first frame only.
+        Assert.Equal(FrameHeight, result.StitchedImage!.PixelHeight);
+        Assert.All(result.StitchSteps!.Skip(1), s => Assert.True(s.UsedFallback));
     }
 
     [Fact]
