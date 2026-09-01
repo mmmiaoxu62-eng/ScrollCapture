@@ -15,6 +15,11 @@ public sealed class IncrementalStitcher
 {
     private const long MaxMemoryBytes = 700L * 1024 * 1024;
 
+    // True matches typically score 0.98+; self-similar content (chat lists) produces
+    // junk peaks at 0.4-0.6 — anything below is NOT a match (skip, don't paste).
+    internal const double MinAcceptConfidence = 0.75;
+    internal const double MaxDeltaJumpRatio = 0.40; // |delta - last| > 40% of frame height = reject
+
     private readonly int _maxImageHeight;
     private readonly OverlapDetector _detector = new();
 
@@ -69,13 +74,29 @@ public sealed class IncrementalStitcher
             return; // no new content
         }
 
-        double? priorOverlap = priorScrollDeltaPx is double d && d > 0 ? _height - d : null;
+        // Self-prior: when no probe gave an estimate, assume the SAME delta as the last
+        // good step (chat lists scroll uniformly). Junk matches at far offsets are then
+        // unreachable — only genuine peaks inside the narrow window survive.
+        double? priorDelta = priorScrollDeltaPx is double pd && pd > 0
+            ? pd
+            : _lastDelta > 0 && _lastDelta < _height - 10 ? _lastDelta : null;
+        double? priorOverlap = priorDelta is double p && p > 0 ? _height - p : null;
         OverlapResult overlap = _detector.Detect(_lastFrame, current, priorOverlap);
 
-        int delta;
-        if (overlap.Success)
+        int delta = _lastDelta;
+        bool accepted = overlap.Success
+                        && overlap.Confidence >= MinAcceptConfidence;
+        if (accepted)
         {
             delta = _height - Math.Clamp(overlap.OverlapHeight, 1, _height - 1);
+            if (_lastDelta > 0 && Math.Abs(delta - _lastDelta) > _height * MaxDeltaJumpRatio)
+            {
+                accepted = false; // physically implausible jump (100px -> 800px)
+            }
+        }
+
+        if (accepted)
+        {
             ((List<StitchStepReport>)Steps).Add(new StitchStepReport(Steps.Count, overlap.OverlapHeight, overlap.Confidence, false, false));
             _lastDelta = delta;
         }
@@ -84,8 +105,13 @@ public sealed class IncrementalStitcher
             // NEVER paste an estimated delta: live content (chat scroll-ins, animations) can
             // move LESS than the estimate -> duplicated bands. Dropping the frame risks at
             // most a one-step gap; the session ladder reacts and usually recovers.
+            string why = !overlap.Success
+                ? overlap.Note ?? "detection failed"
+                : overlap.Confidence < MinAcceptConfidence
+                    ? $"confidence {overlap.Confidence:F2} below {MinAcceptConfidence}"
+                    : $"delta jump {_height - overlap.OverlapHeight}px vs last {_lastDelta}px";
             ((List<StitchStepReport>)Steps).Add(new StitchStepReport(Steps.Count, 0, 0.0, true, false));
-            ((List<string>)Warnings).Add($"overlap detection failed ({overlap.Note}); frame skipped (duplicate-safety)");
+            ((List<string>)Warnings).Add($"overlap rejected ({why}); frame skipped (duplicate-safety)");
             return;
         }
 
