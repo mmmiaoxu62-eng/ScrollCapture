@@ -83,13 +83,8 @@ public partial class SettingsWindow : Window
         _settings.MaxFrames = maxFrames;
         SettingsService.Save(_settings);
 
-        DialogResult = true;
-        Close();
+        Close(); // shown modeless — no DialogResult
     }
 
-    private void OnCancelClick(object sender, RoutedEventArgs e)
-    {
-        DialogResult = false;
-        Close();
-    }
+    private void OnCancelClick(object sender, RoutedEventArgs e) => Close();
 }
