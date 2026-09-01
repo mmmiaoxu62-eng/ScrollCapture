@@ -89,6 +89,28 @@ public class FrameSimilarityTests
     }
 
     [Fact]
+    public void MotionFraction_StaticVsScrolled()
+    {
+        byte[] buf = MakeBuffer(128, 128, 100, 100, 100);
+        BitmapSource a = ToBgr32Bitmap(buf, 128, 128);
+        BitmapSource b = ToBgr32Bitmap(buf, 128, 128);
+        Assert.Equal(0.0, FrameSimilarity.ComputeMotionFraction(a, b), 2);
+
+        byte[] b2 = MakeBuffer(128, 128, 100, 100, 100);
+        for (int y = 0; y < 128; y += 2)
+        {
+            for (int x = 0; x < 128; x += 8)
+            {
+                int idx = (y * 128 + x) * 4;
+                b2[idx] = 30; b2[idx + 1] = 40; b2[idx + 2] = 50;
+            }
+        }
+        BitmapSource c = ToBgr32Bitmap(b2, 128, 128);
+        double frac = FrameSimilarity.ComputeMotionFraction(a, c);
+        Assert.True(frac > 0.9, $"scrolled-like frames should move: {frac:F2}");
+    }
+
+    [Fact]
     public void SinglePixelChangedByLargeSum_StillTolerated()
     {
         // one sampled region (8x8 area) fully recolored -> mismatched ratio ~ 1/(16*16) = 0.39% < 0.5%

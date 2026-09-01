@@ -19,6 +19,7 @@ public sealed class IncrementalStitcher
     // junk peaks at 0.4-0.6 — anything below is NOT a match (skip, don't paste).
     internal const double MinAcceptConfidence = 0.75;
     internal const double MaxDeltaJumpRatio = 0.40; // |delta - last| > 40% of frame height = reject
+    internal const double MotionStaticThreshold = 0.04; // <4% changed rows = window did not move
 
     private readonly int _maxImageHeight;
     private readonly OverlapDetector _detector = new();
@@ -72,6 +73,15 @@ public sealed class IncrementalStitcher
             ((List<StitchStepReport>)Steps).Add(new StitchStepReport(Steps.Count, _height, 1.0, false, true));
             _lastDelta = 0;
             return; // no new content
+        }
+
+        // Motion gate: if almost NO rows changed, the window did not move — matching next
+        // would be picking a phantom peak out of static content (repeated-block bug).
+        if (FrameSimilarity.ComputeMotionFraction(_lastFrame, current) < MotionStaticThreshold)
+        {
+            ((List<StitchStepReport>)Steps).Add(new StitchStepReport(Steps.Count, _height, 1.0, false, true));
+            _lastDelta = 0;
+            return; // static after all — count toward the bottom-stop
         }
 
         // Self-prior: when no probe gave an estimate, assume the SAME delta as the last

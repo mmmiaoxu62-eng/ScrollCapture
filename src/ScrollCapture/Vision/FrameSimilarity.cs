@@ -56,6 +56,49 @@ public static class FrameSimilarity
         return mismatched / (double)total <= AllowedMismatchRatio;
     }
 
+    /// <summary>
+    /// Fraction of rows that actually changed between two frames at the SAME absolute
+    /// position (sampled). True scrolling changes most rows; a static window with only
+    /// tiny animations stays near zero. Used as the "did the page move at all" gate
+    /// BEFORE overlap matching — stale/static content must never be pasted.
+    /// </summary>
+    public static double ComputeMotionFraction(BitmapSource a, BitmapSource b)
+    {
+        if (a.PixelWidth != b.PixelWidth || a.PixelHeight != b.PixelHeight)
+        {
+            return 1.0;
+        }
+        byte[] aa = ToBgr32Buffer(a);
+        byte[] bb = ToBgr32Buffer(b);
+        int width = a.PixelWidth;
+        int height = a.PixelHeight;
+        int stride = width * 4;
+        const double rowDiffThreshold = 4.0;
+        int changedRows = 0;
+        int totalRows = 0;
+        for (int y = 0; y < height; y += 2)
+        {
+            long sum = 0;
+            int n = 0;
+            int row = y * stride;
+            for (int x = 0; x < width; x += 8)
+            {
+                int idx = row + x * 4;
+                sum += Math.Abs(aa[idx] - bb[idx])
+                     + Math.Abs(aa[idx + 1] - bb[idx + 1])
+                     + Math.Abs(aa[idx + 2] - bb[idx + 2]);
+                n++;
+            }
+            double avg = sum / (double)Math.Max(1, n * 3);
+            if (avg > rowDiffThreshold)
+            {
+                changedRows++;
+            }
+            totalRows++;
+        }
+        return totalRows == 0 ? 0 : changedRows / (double)totalRows;
+    }
+
     public static byte[] ToBgr32Buffer(BitmapSource source)
     {
         if (source.Format != PixelFormats.Bgr32)

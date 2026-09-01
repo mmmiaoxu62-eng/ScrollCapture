@@ -62,6 +62,36 @@ public class IncrementalStitcherTests
     }
 
     [Fact]
+    public void Incremental_NearStaticFrames_SkippedNotPasted()
+    {
+        BitmapSource a = TestImages.Slice(LongBuffer, W, H, 0);
+        // mutate <4% rows: a small "animated banner" like a chat emoji
+        byte[] mut = FrameSimilarity.ToBgr32Buffer(a);
+        var rnd = new Random(7);
+        for (int y = 20; y < 24; y++)
+        {
+            int row = y * W;
+            for (int x = 0; x < W; x++)
+            {
+                int idx = row + x * 4;
+                mut[idx] = (byte)rnd.Next(256);
+                mut[idx + 1] = (byte)rnd.Next(256);
+                mut[idx + 2] = (byte)rnd.Next(256);
+            }
+        }
+        BitmapSource b = TestImages.CreateBgr32(mut, W, H);
+
+        var stitcher = new IncrementalStitcher(5000);
+        stitcher.Start(a);
+        stitcher.Add(b, null);
+
+        BitmapSource? image = stitcher.Finish();
+        Assert.NotNull(image);
+        Assert.Equal(H, image!.PixelHeight);       // nothing pasted
+        Assert.True(stitcher.Steps[^1].Skipped);   // static-motion skip
+    }
+
+    [Fact]
     public void Incremental_TruncatesAtMaxHeight()
     {
         var stitcher = new IncrementalStitcher(maxImageHeight: 500);

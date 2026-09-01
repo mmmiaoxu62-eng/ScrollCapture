@@ -217,28 +217,32 @@ public sealed class LongCaptureSession : IDisposable
                     }
                 }
 
-                if (previous != null && FrameSimilarity.IsNearlyIdentical(frame, previous))
-                {
-                    unchanged++;
-                    if (unchanged >= _options.IdenticalFramesToStop)
-                    {
-                        return await FinishAsync(SessionStopReason.ReachedBottom, deltas, degraded);
-                    }
-                }
-                else
-                {
-                    unchanged = 0;
-                }
-
-                // incremental stitch (also feeds the vision ladder below)
+                // incremental stitch (also feeds the vision ladder below).
+                // "Skipped" (identical OR motion-static) advances the bottom-stop counter
+                // — near-static content stops fast instead of phantom-pasting.
+                bool identicalPair = previous != null && FrameSimilarity.IsNearlyIdentical(previous, frame);
                 double? priorDelta = deltas.Count > 0 ? deltas[^1] : null;
                 if (previous == null)
                 {
                     _stitcher.Start(frame);
+                    unchanged = 0;
                 }
                 else
                 {
                     _stitcher.Add(frame, priorDelta);
+                    bool skipped = _stitcher.Steps.Count > 0 && _stitcher.Steps[^1].Skipped;
+                    if (identicalPair || skipped)
+                    {
+                        unchanged++;
+                        if (unchanged >= _options.IdenticalFramesToStop)
+                        {
+                            return await FinishAsync(SessionStopReason.ReachedBottom, deltas, degraded);
+                        }
+                    }
+                    else
+                    {
+                        unchanged = 0;
+                    }
                 }
 
                 visionFailCount = EvaluateVision(frame, visionFailCount,
