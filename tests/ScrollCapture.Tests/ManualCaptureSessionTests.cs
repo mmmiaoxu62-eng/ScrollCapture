@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 using System.Windows.Media.Imaging;
 using ScrollCapture.Scrolling;
@@ -14,21 +14,23 @@ public class ManualCaptureSessionTests
     [Fact]
     public void Manual_AddsFramesAndProducesStitch()
     {
-        int step = 0;
+        var frames = new Queue<BitmapSource>();
+        frames.Enqueue(TestImages.Slice(LongBuffer, W, H, 0));
+        frames.Enqueue(TestImages.Slice(LongBuffer, W, H, 180));
+        frames.Enqueue(TestImages.Slice(LongBuffer, W, H, 360));
+
         var session = new ManualCaptureSession(
             new Int32Rect(0, 0, W, H),
             maxImageHeight: 5000,
-            capture: _ => TestImages.Slice(LongBuffer, W, H, step * 180 + (step++ == 0 ? 0 : 180 - 180)));
+            capture: _ => frames.Dequeue());
 
-        // simulate 3 hotkey presses with the user scrolling 180px between them
         int added = 0;
-        for (int i = 0; i < 3; i++)
+        while (frames.Count > 0)
         {
             if (session.AddFrame(out string? warning))
             {
                 added++;
             }
-            step++; // user scrolls forward between presses
         }
 
         Assert.Equal(3, added);
@@ -36,28 +38,35 @@ public class ManualCaptureSessionTests
         BitmapSource? result = session.Finish();
         Assert.NotNull(result);
         Assert.Equal(300 + 2 * 180, result!.PixelHeight);
+        Assert.Equal(0, session.Warnings.Count);
     }
 
     [Fact]
     public void Manual_RespectsHeightLimit()
     {
+        var frames = new Queue<BitmapSource>();
+        for (int i = 0; i < 6; i++)
+        {
+            frames.Enqueue(TestImages.Slice(LongBuffer, W, H, (i + 1) * 180));
+        }
+
         var session = new ManualCaptureSession(
             new Int32Rect(0, 0, W, H),
             maxImageHeight: 460,
-            capture: _ => TestImages.Slice(LongBuffer, W, H, _frameIdx++ * 180));
+            capture: _ => frames.Dequeue());
 
-        while (session.AddFrame(out string? warning))
+        bool truncated = false;
+        while (frames.Count > 0)
         {
-            if (warning != null)
+            if (!session.AddFrame(out string? warning))
             {
+                truncated = true;
                 break;
             }
         }
         BitmapSource? result = session.Finish();
         Assert.NotNull(result);
         Assert.True(result!.PixelHeight <= 460, $"got {result.PixelHeight}");
-        Assert.True(session.Truncated || session.Warnings.Count > 0);
+        Assert.True(truncated || session.Warnings.Count > 0);
     }
-
-    private int _frameIdx = 1;
 }
