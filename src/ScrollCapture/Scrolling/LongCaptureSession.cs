@@ -244,6 +244,19 @@ public sealed class LongCaptureSession : IDisposable
                 visionFailCount = EvaluateVision(frame, visionFailCount,
                     ref visionSuccessStreak, ref waitScale, ref degraded);
 
+                // Single failure usually is a transient (new chat line, animation frame):
+                // wait, re-capture the same spot, and try the detector once more.
+                if (visionFailCount == 1 && previous != null && _ownController != null)
+                {
+                    await Task.Delay(Math.Max(300, _options.DelayPerScrollMs), _token).ConfigureAwait(false);
+                    BitmapSource retryFrame = _capture(_region);
+                    ScheduleSave(retryFrame, _capturedCount + 500);
+                    double? priorD = deltas.Count > 0 ? deltas[^1] : null;
+                    _stitcher.Add(retryFrame, priorD);
+                    visionFailCount = EvaluateVision(retryFrame, visionFailCount,
+                        ref visionSuccessStreak, ref waitScale, ref degraded);
+                }
+
                 if (visionFailCount >= 2 && i >= 2)
                 {
                     return await FinishAsync(SessionStopReason.Unstable, deltas, degraded);

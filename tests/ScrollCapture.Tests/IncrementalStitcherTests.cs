@@ -74,4 +74,21 @@ public class IncrementalStitcherTests
         Assert.Equal(480, image!.PixelHeight);
         Assert.True(stitcher.Truncated);
     }
+
+    [Fact]
+    public void Incremental_UnmatchableFrame_IsSkippedNotEstimated()
+    {
+        var stitcher = new IncrementalStitcher(5000);
+        stitcher.Start(TestImages.Slice(LongBuffer, W, H, 0));
+        stitcher.Add(TestImages.Slice(LongBuffer, W, H, 180), 180);          // ok -> 300+180
+        stitcher.Add(TestImages.CreateNoise(W, H, seed: 4242), 180);         // unmatchable
+
+        BitmapSource? image = stitcher.Finish();
+
+        Assert.NotNull(image);
+        Assert.Equal(300 + 180, image!.PixelHeight); // nothing pasted for the disjoint frame
+        Assert.True(stitcher.Warnings.Count > 0);
+        Assert.Contains(stitcher.Steps, s => s.UsedFallback);
+        Assert.Equal(stitcher.Steps[^1].OverlapHeight, 0);
+    }
 }

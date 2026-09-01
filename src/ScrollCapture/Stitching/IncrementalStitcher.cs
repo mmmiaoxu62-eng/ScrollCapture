@@ -77,16 +77,17 @@ public sealed class IncrementalStitcher
         {
             delta = _height - Math.Clamp(overlap.OverlapHeight, 1, _height - 1);
             ((List<StitchStepReport>)Steps).Add(new StitchStepReport(Steps.Count, overlap.OverlapHeight, overlap.Confidence, false, false));
+            _lastDelta = delta;
         }
         else
         {
-            int expected = Math.Clamp(_lastDelta == 0 ? _height / 2 : _lastDelta,
-                Math.Max(20, _height / 4), (int)(_height * 0.9));
-            delta = expected;
-            ((List<StitchStepReport>)Steps).Add(new StitchStepReport(Steps.Count, _height - delta, 0.0, true, false));
-            ((List<string>)Warnings).Add($"overlap detection failed ({overlap.Note}); used estimated delta {delta}px");
+            // NEVER paste an estimated delta: live content (chat scroll-ins, animations) can
+            // move LESS than the estimate -> duplicated bands. Dropping the frame risks at
+            // most a one-step gap; the session ladder reacts and usually recovers.
+            ((List<StitchStepReport>)Steps).Add(new StitchStepReport(Steps.Count, 0, 0.0, true, false));
+            ((List<string>)Warnings).Add($"overlap detection failed ({overlap.Note}); frame skipped (duplicate-safety)");
+            return;
         }
-        _lastDelta = delta;
 
         if (delta <= 0)
         {
