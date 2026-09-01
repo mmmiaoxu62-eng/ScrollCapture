@@ -33,6 +33,11 @@
                 Padding="0,8"
                 Content="单次截图（保存 PNG）"
                 Click="OnSingleCaptureClick" />
+        <Button x:Name="ManualCaptureButton"
+                Margin="0,8,0,0"
+                Padding="0,8"
+                Content="手动模式（自己滚动，逐帧截图）"
+                Click="OnManualCaptureClick" />
         <Button x:Name="SettingsButton"
                 Margin="0,8,0,0"
                 Padding="0,8"

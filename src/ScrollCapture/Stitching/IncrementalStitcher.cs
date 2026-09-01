@@ -99,6 +99,10 @@ public sealed class IncrementalStitcher
         {
             ((List<StitchStepReport>)Steps).Add(new StitchStepReport(Steps.Count, overlap.OverlapHeight, overlap.Confidence, false, false));
             _lastDelta = delta;
+            if (overlap.Confidence < 0.9)
+            {
+                Utils.Logger.Info($"stitch step {Steps.Count - 1}: accepted conf={overlap.Confidence:F2} ov={overlap.OverlapHeight}");
+            }
         }
         else
         {
@@ -112,6 +116,7 @@ public sealed class IncrementalStitcher
                     : $"delta jump {_height - overlap.OverlapHeight}px vs last {_lastDelta}px";
             ((List<StitchStepReport>)Steps).Add(new StitchStepReport(Steps.Count, 0, 0.0, true, false));
             ((List<string>)Warnings).Add($"overlap rejected ({why}); frame skipped (duplicate-safety)");
+            Utils.Logger.Info($"stitch step {Steps.Count - 1}: REJECTED ({why})");
             return;
         }
 

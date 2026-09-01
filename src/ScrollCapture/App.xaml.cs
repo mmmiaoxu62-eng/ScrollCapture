@@ -50,7 +50,7 @@ public partial class App : Application
         }
         _hotkeyManager.HotkeyPressed += (_, _) =>
         {
-            Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, () => CurrentMainWindow?.BeginCapture());
+            Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, () => CurrentMainWindow?.HandleHotkey());
         };
 
         var mainWindow = new MainWindow(_hotkeyManager, Settings, CaptureHotkeyRegistered);
