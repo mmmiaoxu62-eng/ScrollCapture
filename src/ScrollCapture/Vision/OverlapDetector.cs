@@ -48,7 +48,7 @@ public sealed class OverlapDetector
     /// fall back to a global scan.
     /// </param>
     public OverlapResult Detect(BitmapSource previous, BitmapSource next, double? priorOverlapPx = null,
-        bool[]? drivingBandMask = null)
+        bool[]? drivingBandMask = null, RegionWeightMap? weightMap = null)
     {
         if (previous.PixelWidth != next.PixelWidth || previous.PixelHeight != next.PixelHeight)
         {
@@ -73,11 +73,13 @@ public sealed class OverlapDetector
         bool[] staticMaskSmall = ComputeStaticMask(smallA, smallB, sw, sh);
         bool[] colMask = ColumnMotion.ToColumnMask(drivingBandMask, width);
         bool[] colMaskSmall = ColumnMotion.ToColumnMask(drivingBandMask, sw);
+        double[]? rowW = weightMap?.RowWeight;
+        double[]? colW = weightMap?.ColWeight;
 
         if (priorOverlapPx is double prior && prior >= MinOverlapRatio * height && prior <= MaxOverlapRatio * height)
         {
             OverlapResult narrowed = Scan(smallA, smallB, grayA, grayB, sw, sh, width, height,
-                staticMask, staticMaskSmall, colMask, colMaskSmall,
+                staticMask, staticMaskSmall, colMask, colMaskSmall, rowW, colW,
                 priorMinK: (int)((prior - 12) / DownscaleFactor),
                 priorMaxK: (int)((prior + 12) / DownscaleFactor));
             if (narrowed.Success)
@@ -86,20 +88,21 @@ public sealed class OverlapDetector
             }
             // prior was wrong or too narrow - fall through to global scan
             OverlapResult global = Scan(smallA, smallB, grayA, grayB, sw, sh, width, height,
-                staticMask, staticMaskSmall, colMask, colMaskSmall, null, null);
+                staticMask, staticMaskSmall, colMask, colMaskSmall, rowW, colW, null, null);
             return global.Success
                 ? global with { Note = (global.Note ?? "") + " | prior mismatch, global hit" }
                 : global;
         }
 
         return Scan(smallA, smallB, grayA, grayB, sw, sh, width, height,
-            staticMask, staticMaskSmall, colMask, colMaskSmall, null, null);
+            staticMask, staticMaskSmall, colMask, colMaskSmall, rowW, colW, null, null);
     }
 
     private static OverlapResult Scan(
         byte[] smallA, byte[] smallB, byte[] grayA, byte[] grayB,
         int sw, int sh, int width, int height,
         bool[] staticMask, bool[] staticMaskSmall, bool[] colMask, bool[] colMaskSmall,
+        double[]? rowWeight, double[]? colWeight,
         int? priorMinK, int? priorMaxK)
     {
         int minK = Math.Max(1, (int)(sh * MinOverlapRatio));
@@ -124,7 +127,7 @@ public sealed class OverlapDetector
         // descending: on ties prefer the LARGER overlap (more conservative delta)
         for (int k = maxK; k >= minK; k--)
         {
-            double score = RobustRowScore(smallA, smallB, sw, sh, sh, sh - k, 0, k, colStep: 2, TrimWorstRowsPercent, staticMaskSmall, colMaskSmall);
+            double score = RobustRowScore(smallA, smallB, sw, sh, sh, sh - k, 0, k, colStep: 2, TrimWorstRowsPercent, staticMaskSmall, colMaskSmall, rowWeight, colWeight);
             if (score < best)
             {
                 second = best;
@@ -159,7 +162,7 @@ public sealed class OverlapDetector
         int bestRefK = rMin;
         for (int k = rMin; k <= rMax; k++)
         {
-            double score = RobustRowScore(grayA, grayB, width, height, height, height - k, 0, k, colStep: 3, TrimWorstRowsPercent, staticMask, colMask);
+            double score = RobustRowScore(grayA, grayB, width, height, height, height - k, 0, k, colStep: 3, TrimWorstRowsPercent, staticMask, colMask, rowWeight, colWeight);
             if (score < bestRef)
             {
                 bestRef = score;
@@ -175,7 +178,7 @@ public sealed class OverlapDetector
         int bandOffset = Math.Max(1, bestRefK / 3);
         int bandRows = Math.Min(bestRefK / 2, 120);
         double bandDiff = RobustRowScore(grayA, grayB, width, height, height,
-            height - bestRefK + bandOffset, bandOffset, bandRows, colStep: 4, trimPercent: 0, staticMask, colMask);
+            height - bestRefK + bandOffset, bandOffset, bandRows, colStep: 4, trimPercent: 0, staticMask, colMask, rowWeight, colWeight);
         if (bandDiff > bestRef * 2.5 + 4)
         {
             return OverlapResult.Fail($"band mismatch {bandDiff:F2} vs {bestRef:F2}");
@@ -276,11 +279,12 @@ public sealed class OverlapDetector
     /// Rows flagged static by the mask (absolute row of B) are excluded.
     /// Robust: worst trimPercent% rows (dynamic content) are excluded before averaging.
     /// </summary>
-    private static double RobustRowScore(
+    internal static double RobustRowScore(
         byte[] a, byte[] b, int width,
         int aHeight, int bHeight,
         int aStart, int bStart, int count,
-        int colStep, int trimPercent, bool[]? staticMaskB, bool[]? colMask = null)
+        int colStep, int trimPercent, bool[]? staticMaskB, bool[]? colMask = null,
+        double[]? rowWeight = null, double[]? colWeight = null)
     {
         if (count <= 0 || aStart < 0 || bStart < 0)
         {
@@ -292,59 +296,140 @@ public sealed class OverlapDetector
             return double.MaxValue;
         }
 
-        var rowDiffs = new double[rows];
-        int used = 0;
+        bool weighted = rowWeight != null || colWeight != null;
+
+        // ------- ORIGINAL PATH (byte-level unchanged when no weights supplied) -------
+        if (!weighted)
+        {
+            var rowDiffs = new double[rows];
+            int used = 0;
+            for (int j = 0; j < rows; j++)
+            {
+                int bAbs = bStart + j;
+                if (staticMaskB != null && bAbs >= 0 && bAbs < staticMaskB.Length && staticMaskB[bAbs])
+                {
+                    continue; // fixed chrome — skip, it matches any offset
+                }
+                int aBase = (aStart + j) * width;
+                int bBase = bAbs * width;
+                long sum = 0;
+                int cols = 0;
+                for (int x = 0; x < width; x += colStep)
+                {
+                    if (colMask != null && !colMask[x])
+                    {
+                        continue; // non-driving band — diluted scoring
+                    }
+                    sum += Math.Abs(a[aBase + x] - b[bBase + x]);
+                    cols++;
+                }
+                if (cols == 0)
+                {
+                    continue;
+                }
+                rowDiffs[used++] = sum / (double)cols;
+            }
+
+            // If everything was masked (fully static content) -> indistinguishable, fail.
+            int effectiveRows = used - (trimPercent > 0 ? used * trimPercent / 100 : 0);
+            if (effectiveRows <= 0)
+            {
+                return double.MaxValue;
+            }
+            if (used < rowDiffs.Length)
+            {
+                var compact = new double[used];
+                Array.Copy(rowDiffs, compact, used);
+                rowDiffs = compact;
+            }
+            if (trimPercent > 0 && rowDiffs.Length > 1)
+            {
+                Array.Sort(rowDiffs);
+            }
+            double total = 0;
+            for (int j = 0; j < Math.Min(effectiveRows, rowDiffs.Length); j++)
+            {
+                total += rowDiffs[j];
+            }
+            return total / effectiveRows;
+        }
+
+        // ------- WEIGHTED PATH (only when a reliable RegionWeightMap was supplied) -------
+        // Fixed region (weight 0) contributes nothing to score NOR denominator — it is
+        // effectively excluded; Unknown (0.4) weakens but keeps some evidence.
+        var rowRaw = new double[rows];
+        var rowW = new double[rows];
+        int usedW = 0;
         for (int j = 0; j < rows; j++)
         {
             int bAbs = bStart + j;
             if (staticMaskB != null && bAbs >= 0 && bAbs < staticMaskB.Length && staticMaskB[bAbs])
             {
-                continue; // fixed chrome 鈥?skip, it matches any offset
+                continue;
             }
+            double rw = rowWeight != null
+                ? (bAbs >= 0 && bAbs < rowWeight.Length ? Math.Clamp(rowWeight[bAbs], 0.0, 1.0) : 1.0)
+                : 1.0;
+            if (rw <= 0.001)
+            {
+                continue; // fixed row — exclude from score & norm entirely
+            }
+
             int aBase = (aStart + j) * width;
             int bBase = bAbs * width;
             long sum = 0;
+            double colWSum = 0;
             int cols = 0;
             for (int x = 0; x < width; x += colStep)
             {
                 if (colMask != null && !colMask[x])
                 {
-                    continue; // non-driving band — diluted scoring
+                    continue;
+                }
+                double cw = colWeight != null
+                    ? (x < colWeight.Length ? Math.Clamp(colWeight[x], 0.0, 1.0) : 1.0)
+                    : 1.0;
+                if (cw <= 0.001)
+                {
+                    continue; // fixed column — excluded within this row
                 }
                 sum += Math.Abs(a[aBase + x] - b[bBase + x]);
+                colWSum += cw;
                 cols++;
             }
             if (cols == 0)
             {
                 continue;
             }
-            rowDiffs[used++] = sum / (double)cols;
+            double colAvgW = colWSum / cols;
+            rowRaw[usedW] = sum / (double)cols;
+            rowW[usedW] = rw * colAvgW;
+            usedW++;
         }
 
-        // If everything was masked (fully static content) -> indistinguishable, fail.
-        int effectiveRows = used - (trimPercent > 0 ? used * trimPercent / 100 : 0);
-        if (effectiveRows <= 0)
+        int effW = usedW - (trimPercent > 0 ? usedW * trimPercent / 100 : 0);
+        if (effW <= 0)
         {
             return double.MaxValue;
         }
-        if (used < rowDiffs.Length)
+        var idxW = Enumerable.Range(0, usedW).ToArray();
+        if (trimPercent > 0 && usedW > 1)
         {
-            var compact = new double[used];
-            Array.Copy(rowDiffs, compact, used);
-            rowDiffs = compact;
+            Array.Sort(idxW, (i, k) => rowRaw[i].CompareTo(rowRaw[k]));
         }
-        if (trimPercent > 0 && rowDiffs.Length > 1)
+        double wSum = 0;
+        double wNorm = 0;
+        for (int k = 0; k < Math.Min(effW, usedW); k++)
         {
-            Array.Sort(rowDiffs);
+            int i = idxW[k];
+            wSum += rowRaw[i] * rowW[i];
+            wNorm += rowW[i];
         }
-        double total = 0;
-        for (int j = 0; j < Math.Min(effectiveRows, rowDiffs.Length); j++)
-        {
-            total += rowDiffs[j];
-        }
-        return total / effectiveRows;
+        return wNorm > 0 ? wSum / wNorm : double.MaxValue;
     }
 }
+
+
 
 
 
