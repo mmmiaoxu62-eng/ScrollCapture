@@ -5,6 +5,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Microsoft.Win32;
+using ScrollCapture.Capture;
 using ScrollCapture.Settings;
 using ScrollCapture.Utils;
 
@@ -49,11 +50,132 @@ public partial class PreviewWindow : Window
 
     private double _zoom = 1.0;
 
+    private BitmapSource? _sourceAfterCrop;
+    private bool _cropActive;
+    private Point _cropStart;
+
     private void OnImageMouseWheel(object sender, MouseWheelEventArgs e)
     {
         double delta = e.Delta > 0 ? 1.15 : 1.0 / 1.15;
         ApplyZoom(_zoom * delta);
         e.Handled = true;
+    }
+
+    private void OnCropClick(object sender, RoutedEventArgs e)
+    {
+        EnterCropMode();
+    }
+
+    private void EnterCropMode()
+    {
+        if (_cropActive || PreviewImage.Source is not BitmapSource bmp || bmp.PixelWidth < 2)
+        {
+            return;
+        }
+        _cropActive = true;
+        CropOverlay.Width = PreviewImage.ActualWidth;
+        CropOverlay.Height = PreviewImage.ActualHeight;
+        CropOverlay.Visibility = Visibility.Visible;
+        CropOverlay.Cursor = Cursors.Cross;
+        CropRect.Visibility = Visibility.Collapsed;
+        CropOverlay.MouseLeftButtonDown += OnCropMouseDown;
+        CropOverlay.MouseMove += OnCropMouseMove;
+        CropOverlay.MouseLeftButtonUp += OnCropMouseUp;
+        SetStatus("拖动选择裁剪区域");
+    }
+
+    private void ExitCropMode()
+    {
+        if (!_cropActive)
+        {
+            return;
+        }
+        _cropActive = false;
+        CropOverlay.MouseLeftButtonDown -= OnCropMouseDown;
+        CropOverlay.MouseMove -= OnCropMouseMove;
+        CropOverlay.MouseLeftButtonUp -= OnCropMouseUp;
+        CropOverlay.Visibility = Visibility.Collapsed;
+    }
+
+    private void OnCropMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        _cropStart = e.GetPosition(CropOverlay);
+        CropOverlay.CaptureMouse();
+    }
+
+    private void OnCropMouseMove(object sender, MouseEventArgs e)
+    {
+        if (e.LeftButton != MouseButtonState.Pressed)
+        {
+            return;
+        }
+        var p = e.GetPosition(CropOverlay);
+        var sel = DpiMath.Normalize(_cropStart, p);
+        CropRect.Width = sel.Width;
+        CropRect.Height = sel.Height;
+        Canvas.SetLeft(CropRect, sel.X);
+        Canvas.SetTop(CropRect, sel.Y);
+        CropRect.Visibility = Visibility.Visible;
+
+        // dim excluding selection
+        double cw = CropOverlay.Width;
+        double ch = CropOverlay.Height;
+        var dim = new GeometryGroup { FillRule = FillRule.EvenOdd };
+        dim.Children.Add(new RectangleGeometry(new Rect(0, 0, cw, ch)));
+        if (sel.Width > 0.5 && sel.Height > 0.5)
+        {
+            dim.Children.Add(new RectangleGeometry(sel));
+        }
+        CropDimPath.Data = dim;
+    }
+
+    private void OnCropMouseUp(object sender, MouseButtonEventArgs e)
+    {
+        CropOverlay.ReleaseMouseCapture();
+        var p = e.GetPosition(CropOverlay);
+        var sel = DpiMath.Normalize(_cropStart, p);
+        if (sel.Width < 4 || sel.Height < 4)
+        {
+            ExitCropMode();
+            return;
+        }
+        try
+        {
+            // maps overlay dips -> source pixel space
+            var bmp = (BitmapSource)PreviewImage.Source;
+            double scale = bmp.PixelWidth / PreviewImage.ActualWidth;
+            var px = new Int32Rect(
+                DpiMath.SafeRound(sel.X * scale),
+                DpiMath.SafeRound(sel.Y * scale),
+                Math.Max(1, DpiMath.SafeRound(sel.Width * scale)),
+                Math.Max(1, DpiMath.SafeRound(sel.Height * scale)));
+            _sourceAfterCrop ??= (BitmapSource)PreviewImage.Source;
+            var cropped = new CroppedBitmap(_sourceAfterCrop, px);
+            cropped.Freeze();
+            PreviewImage.Source = cropped;
+            RestoreButton.Visibility = Visibility.Visible;
+            InfoText.Text = $"已裁剪 {cropped.PixelWidth} × {cropped.PixelHeight} px（原 {bmp.PixelWidth} × …）";
+            FitToWindow();
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Crop failed", ex);
+            SetStatus($"裁剪失败：{ex.Message}");
+        }
+        finally
+        {
+            ExitCropMode();
+        }
+    }
+
+    private void OnRestoreClick(object sender, RoutedEventArgs e)
+    {
+        if (_sourceAfterCrop != null)
+        {
+            PreviewImage.Source = _sourceAfterCrop;
+            RestoreButton.Visibility = Visibility.Collapsed;
+            FitToWindow();
+        }
     }
 
     private void OnCopyClick(object sender, RoutedEventArgs e)

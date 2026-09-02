@@ -31,6 +31,17 @@
                            Stretch="None"
                            RenderOptions.BitmapScalingMode="HighQuality"
                            MouseWheel="OnImageMouseWheel" />
+                    <Canvas x:Name="CropOverlay"
+                            Visibility="Collapsed"
+                            Cursor="Cross"
+                            Background="Transparent">
+                        <Path x:Name="CropDimPath" Fill="#70101420" />
+                        <Rectangle x:Name="CropRect"
+                                   Stroke="#FF1E90FF"
+                                   StrokeThickness="2"
+                                   Fill="#141E90FF"
+                                   Visibility="Collapsed" />
+                    </Canvas>
                 </Grid>
             </ScrollViewer>
         </Border>
@@ -40,6 +51,8 @@
                 Padding="12,8">
             <StackPanel Orientation="Horizontal">
                 <Button Content="复制图片" Click="OnCopyClick" Padding="18,6" Margin="0,0,8,0" />
+                <Button Content="裁剪…" Click="OnCropClick" Padding="18,6" Margin="0,0,8,0" />
+                <Button x:Name="RestoreButton" Content="恢复原图" Click="OnRestoreClick" Padding="18,6" Margin="0,0,8,0" Visibility="Collapsed" />
                 <Button Content="保存 PNG" Click="OnSavePngClick" Padding="18,6" Margin="0,0,8,0" />
                 <Button Content="保存 JPG" Click="OnSaveJpgClick" Padding="18,6" Margin="0,0,8,0" />
                 <Button Content="重新截取" Click="OnRetakeClick" Padding="18,6" Margin="0,0,8,0" />
