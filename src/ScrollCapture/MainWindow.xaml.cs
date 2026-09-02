@@ -178,7 +178,7 @@ public partial class MainWindow : Window
                 {
                     StatusText.Text = $"拼接完成：{stitched.PixelWidth} × {stitched.PixelHeight} px（{result.FrameCount} 帧）\n已保存：{path}" +
                                       warnings + $"\n({stats})";
-                    ShowPreview(stitched, "已自动复制到剪贴板");
+                    ShowPreview(stitched, "已自动复制到剪贴板", path);
                     Show();
                 });
             }
@@ -194,7 +194,7 @@ public partial class MainWindow : Window
         });
     }
 
-    private void ShowPreview(BitmapSource bitmap, string? note = null)
+    private void ShowPreview(BitmapSource bitmap, string? note = null, string? savedFilePath = null)
     {
         try
         {
@@ -204,7 +204,7 @@ public partial class MainWindow : Window
         {
             Logger.Warn($"Auto clipboard copy failed: {ex.Message}");
         }
-        var preview = new PreviewWindow(bitmap, _settings, note);
+        var preview = new PreviewWindow(bitmap, _settings, note, savedFilePath);
         preview.RetakeRequested += () => BeginCapture();
         preview.Show();
     }

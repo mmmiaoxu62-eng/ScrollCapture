@@ -18,11 +18,14 @@ public partial class PreviewWindow : Window
     private readonly AppSettings _settings;
     private readonly string? _saveInfo;
 
-    public PreviewWindow(BitmapSource bitmap, AppSettings settings, string? saveInfo = null)
+    private string? _savedFilePath;
+
+    public PreviewWindow(BitmapSource bitmap, AppSettings settings, string? saveInfo = null, string? savedFilePath = null)
     {
         InitializeComponent();
         _settings = settings;
         _saveInfo = saveInfo;
+        _savedFilePath = savedFilePath;
 
         PreviewImage.Source = bitmap;
         InfoText.Text = $"{bitmap.PixelWidth} × {bitmap.PixelHeight} px" + (saveInfo != null ? $" · {saveInfo}" : "");
@@ -337,6 +340,36 @@ public partial class PreviewWindow : Window
     {
         RetakeRequested?.Invoke();
         Close();
+    }
+
+    private void OnDeleteClick(object sender, RoutedEventArgs e)
+    {
+        if (_savedFilePath == null)
+        {
+            SetStatus("没有可删除的已保存文件。");
+            return;
+        }
+        var answer = MessageBox.Show(this,
+            $"删除本次截取的长图？\n\n{_savedFilePath}\n\n（此操作不可撤销；之前另存的文件不受影响）",
+            "删除截取的图", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (answer != MessageBoxResult.Yes)
+        {
+            return;
+        }
+        try
+        {
+            if (File.Exists(_savedFilePath))
+            {
+                File.Delete(_savedFilePath);
+            }
+            SetStatus("已删除，可关闭此窗口。");
+            Logger.Info($"Preview delete: {_savedFilePath}");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Delete failed", ex);
+            SetStatus($"删除失败：{ex.Message}");
+        }
     }
 
     private void OnOpenFolderClick(object sender, RoutedEventArgs e)

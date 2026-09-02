@@ -62,7 +62,8 @@
                 <Button Content="保存 PNG" Click="OnSavePngClick" Padding="18,6" Margin="0,0,8,0" />
                 <Button Content="保存 JPG" Click="OnSaveJpgClick" Padding="18,6" Margin="0,0,8,0" />
                 <Button Content="重新截取" Click="OnRetakeClick" Padding="18,6" Margin="0,0,8,0" />
-                <Button Content="打开所在文件夹" Click="OnOpenFolderClick" Padding="18,6" Margin="0,0,14,0" />
+                <Button Content="打开所在文件夹" Click="OnOpenFolderClick" Padding="18,6" Margin="0,0,8,0" />
+                <Button Content="删除截取的图" Click="OnDeleteClick" Padding="18,6" Margin="0,0,14,0" Foreground="#FFB71C1C" />
                 <TextBlock Text="滚轮缩放 · Ctrl+滚轮平移"
                            Foreground="#FF999999"
                            VerticalAlignment="Center"
