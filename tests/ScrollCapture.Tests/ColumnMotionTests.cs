@@ -100,7 +100,29 @@ public class ColumnMotionTests
 
         Assert.False(stitcher.Steps[^1].Skipped, "driven content is moving — must NOT be skipped");
         Assert.False(stitcher.Steps[^1].UsedFallback, string.Join(";", stitcher.Warnings));
-        Assert.Equal(H + 30, stitcher.Finish()!.PixelHeight);
+
+        BitmapSource? image = stitcher.Finish();
+        Assert.NotNull(image);
+        Assert.Equal(H + 30, image!.PixelHeight);
+
+        byte[] outBytes = FrameSimilarity.ToBgr32Buffer(image);
+        int stride = W * 4;
+        // fixed sidebar below the first frame must be WHITE (blank), scroll band content kept
+        for (int y = H; y < image.PixelHeight; y += 9)
+        {
+            for (int x = 33; x < 224; x += 16)
+            {
+                int idx = y * stride + x * 4;
+                Assert.True(outBytes[idx] == 255 && outBytes[idx + 1] == 255 && outBytes[idx + 2] == 255,
+                    $"sidebar row {y} col {x} should be blank");
+            }
+        }
+        // scrolling band retains actual pixels below the first frame
+        var probeRow = image.PixelHeight - 8;
+        int tx = 240;
+        byte px = outBytes[probeRow * stride + tx * 4 + 2];
+        Assert.True(px != 255 || outBytes[probeRow * stride + tx * 4] != 255 || outBytes[probeRow * stride + tx * 4 + 1] != 255,
+            "scroll band should not be blanked");
     }
 
     [Fact]

@@ -163,7 +163,11 @@ public sealed class IncrementalStitcher
         _lastFrame = current;
     }
 
-    /// <summary>Renders the accumulated long image; safely callable once after the loop.</summary>
+    /// <summary>Renders the accumulated long image; safely callable once after the loop.
+    /// Post-processing: when a driving-band mask exists, non-driving (fixed) columns are
+    /// KEPT only for the first frame's height — everything below is blanked, because the
+    /// fixed UI (sidebar) would otherwise repeat once per frame. Result matches the
+    /// desired "固定区出现一次，其余留白" layout.</summary>
     public BitmapSource? Finish()
     {
         if (_segments.Count == 0 || _totalHeight <= 0)
@@ -177,7 +181,53 @@ public sealed class IncrementalStitcher
             canvas.WritePixels(new Int32Rect(0, offset, _width, rowCount), buffer, _width * 4, rowOffset * _width * 4);
             offset += rowCount;
         }
+
+        if (_bandMask != null && _bandMask.Any(m => !m) && _totalHeight > _height)
+        {
+            BlankStaticColumns(canvas);
+        }
+
         canvas.Freeze();
         return canvas;
+    }
+
+    private void BlankStaticColumns(WriteableBitmap canvas)
+    {
+        bool[] colMask = ColumnMotion.ToColumnMask(_bandMask, _width);
+        int blankFromY = _height; // first frame keeps the fixed UI at the top
+        int blankBottom = (int)_totalHeight;
+
+        // rasterize contiguous runs of fixed columns and overwrite with white
+        int runStart = -1;
+        for (int x = 0; x <= _width; x++)
+        {
+            bool fixedCol = x < _width && !colMask[x];
+            if (fixedCol)
+            {
+                if (runStart < 0) runStart = x;
+            }
+            else if (runStart >= 0)
+            {
+                int runW = x - runStart;
+                BlankRun(canvas, runStart, runW, blankFromY, blankBottom);
+                runStart = -1;
+            }
+        }
+    }
+
+    private static void BlankRun(WriteableBitmap canvas, int x, int width, int fromY, int bottom)
+    {
+        var white = new byte[width * (bottom - fromY) * 4];
+        for (int i = 3; i < white.Length; i += 4)
+        {
+            white[i] = 255; // Bgr32 with white RGB (alpha unused)
+        }
+        for (int i = 0; i < white.Length; i += 4)
+        {
+            white[i] = 255;
+            white[i + 1] = 255;
+            white[i + 2] = 255;
+        }
+        canvas.WritePixels(new Int32Rect(x, fromY, width, bottom - fromY), white, width * 4, 0);
     }
 }
