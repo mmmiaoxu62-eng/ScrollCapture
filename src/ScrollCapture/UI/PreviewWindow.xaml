@@ -38,9 +38,13 @@
                         <Path x:Name="CropDimPath" Fill="#70101420" />
                         <Rectangle x:Name="CropRect"
                                    Stroke="#FF1E90FF"
-                                   StrokeThickness="2"
-                                   Fill="#141E90FF"
-                                   Visibility="Collapsed" />
+                                   StrokeThickness="1.5"
+                                   StrokeDashArray="4 2"
+                                   Fill="#141E90FF" />
+                        <Rectangle x:Name="HandleTL" Width="10" Height="10" Fill="#FF1E90FF" Cursor="SizeNWSE" />
+                        <Rectangle x:Name="HandleTR" Width="10" Height="10" Fill="#FF1E90FF" Cursor="SizeNESW" />
+                        <Rectangle x:Name="HandleBL" Width="10" Height="10" Fill="#FF1E90FF" Cursor="SizeNESW" />
+                        <Rectangle x:Name="HandleBR" Width="10" Height="10" Fill="#FF1E90FF" Cursor="SizeNWSE" />
                     </Canvas>
                 </Grid>
             </ScrollViewer>
@@ -51,7 +55,9 @@
                 Padding="12,8">
             <StackPanel Orientation="Horizontal">
                 <Button Content="复制图片" Click="OnCopyClick" Padding="18,6" Margin="0,0,8,0" />
-                <Button Content="裁剪…" Click="OnCropClick" Padding="18,6" Margin="0,0,8,0" />
+                <Button x:Name="CropButton" Content="裁剪…" Click="OnCropClick" Padding="18,6" Margin="0,0,8,0" />
+                <Button x:Name="CallbackCrop" Content="确认裁剪" Click="OnConfirmCropClick" Padding="18,6" Margin="0,0,8,0" Visibility="Collapsed" />
+                <Button x:Name="CancelCrop" Content="取消裁剪" Click="OnCancelCropClick" Padding="18,6" Margin="0,0,8,0" Visibility="Collapsed" />
                 <Button x:Name="RestoreButton" Content="恢复原图" Click="OnRestoreClick" Padding="18,6" Margin="0,0,8,0" Visibility="Collapsed" />
                 <Button Content="保存 PNG" Click="OnSavePngClick" Padding="18,6" Margin="0,0,8,0" />
                 <Button Content="保存 JPG" Click="OnSaveJpgClick" Padding="18,6" Margin="0,0,8,0" />
