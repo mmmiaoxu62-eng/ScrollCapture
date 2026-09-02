@@ -62,8 +62,16 @@ public sealed class FixedRegionDetector
                 return null;
             }
 
-            // (1) dy0 strictly from the existing original detector
-            OverlapResult dy0 = _baseline.Detect(previous, current, priorOverlapPx: null, drivingBandMask: drivingBands);
+            // (1) dy0 from the existing detector. Additional same-behavior guard used ONLY
+            // INTERNALLY: rows constant at the same absolute position are excluded on the A
+            // side too — fixed footers live inside A's alignment band and would otherwise
+            // pollute the original score curve (the PUBLIC Detect stays byte-identical).
+            // same-abs constant rows (fixed UI band detector) on the A side too
+            byte[] dy0GrayA = ToGray(previous);
+            byte[] dy0GrayB = ToGray(current);
+            bool[] sameAbsMask = OverlapDetector.ComputeStaticMask(dy0GrayA, dy0GrayB, width, height);
+            OverlapResult dy0 = _baseline.DetectWithMaskA(previous, current, priorOverlapPx: null,
+                drivingBandMask: drivingBands, staticMaskA: sameAbsMask);
             if (!dy0.Success || dy0.Confidence < 0.7 || dy0.OverlapHeight <= 0 || dy0.OverlapHeight >= height)
             {
                 DebugLastReport = $"baseline rejected: success={dy0.Success} conf={dy0.Confidence:F2} ov={dy0.OverlapHeight} note={dy0.Note}";
@@ -74,6 +82,7 @@ public sealed class FixedRegionDetector
 
             byte[] grayA = ToGray(previous);
             byte[] grayB = ToGray(current);
+            bool[] sameAbsMask2 = OverlapDetector.ComputeStaticMask(grayA, grayB, width, height);
 
             // (2) row strips: two-test classification (full-res rows, sampled columns)
             double rawFixedVotes = 0;
@@ -198,6 +207,24 @@ public sealed class FixedRegionDetector
                 }
             }
 
+            // fixed-bottom band: rows that are constant at the same absolute position
+            // AND sit inside A's alignment band (A 'aAbs' rows [k-f..k)) deserve zero
+            // weight so the weighted detector no longer sees the footer mismatch.
+            int footerSpan = 0;
+            for (int y = height - 1; y >= 0 && sameAbsMask2[y]; y--)
+            {
+                footerSpan++;
+            }
+            if (footerSpan >= 8)
+            {
+                int k = Math.Max(0, height - (int)Math.Round(_lastDy0));
+                int jStart = Math.Max(0, k - footerSpan - 6);
+                for (int j = jStart; j < Math.Min(height, k); j++)
+                {
+                    rowW[j] = RegionWeightMap.FixedWeight;
+                }
+            }
+
             var colW = new double[width];
             Array.Fill(colW, RegionWeightMap.ScrollWeight);
             int bandWidth = Math.Max(1, width / ColumnMotion.BandCount);
@@ -295,4 +322,5 @@ public sealed class FixedRegionDetector
         return gray;
     }
 }
+
 

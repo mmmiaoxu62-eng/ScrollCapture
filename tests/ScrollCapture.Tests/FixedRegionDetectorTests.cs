@@ -106,27 +106,45 @@ public class FixedRegionDetectorTests
     }
 
     /// <summary>
-    /// Bottom-fixed regions break the ORIGINAL detector (A-side footer rows sit inside the
-    /// alignment band). Per spec, dy0 comes only from the original path — so this pair
-    /// MUST fall back to null (the session then skips the frame: no repeated button).
+    /// Bottom-fixed pages: the PUBLIC detector rejects the pair (A-side footer rows sit
+    /// inside the alignment band) — but the layer's internal dy0 path (same algorithm +
+    /// A-side same-position row exclusion) recovers it, so the fixed footer gets weight 0
+    /// and the session can keep stitching instead of stopping early.
     /// </summary>
     [Fact]
-    public void FixedFooter_OriginalPathRejects_NullFallback()
+    public void FixedFooter_InternalDy0Recovers_WeightMapProduced()
     {
         var (a, b) = Pair(scrollPx: 100, headerH: 0, footerH: 60);
-        Assert.Null(_detector.Update(a, b, drivingBands: null));
-        // and the session's fallback behavior: original detector must also reject
-        var baseline = new OverlapDetector().Detect(a, b);
-        Assert.False(baseline.Success);
+        var publicBaseline = new OverlapDetector().Detect(a, b);
+        Assert.False(publicBaseline.Success); // public stays strict
+
+        RegionWeightMap? map = null;
+        for (int i = 0; i < 3; i++)
+        {
+            map = _detector.Update(a, b, drivingBands: null);
+        }
+        if (map == null) throw new Xunit.Sdk.XunitException("NULL-REPORT: " + _detector.DebugLastReport);
+        Assert.NotNull(map);
+        Assert.True(map!.RowWeight.Skip(H - 55).Take(55).Average() < 0.7,
+            "footer band should be weighted down");
     }
 
     [Fact]
-    public void FixedHeaderFooter_OriginalPathRejects_NullFallback()
+    public void FixedHeaderFooter_WeightsProduced()
     {
         var (a, b) = Pair(scrollPx: 100, headerH: 40, footerH: 30);
-        Assert.Null(_detector.Update(a, b, drivingBands: null));
-        var baseline = new OverlapDetector().Detect(a, b);
-        Assert.False(baseline.Success);
+        RegionWeightMap? map = null;
+        for (int i = 0; i < 3; i++)
+        {
+            map = _detector.Update(a, b, drivingBands: null);
+        }
+        if (map == null) throw new Xunit.Sdk.XunitException("NULL-REPORT: " + _detector.DebugLastReport);
+        double headerW = map!.RowWeight.Take(40).Average();
+        double footerW = map.RowWeight.Skip(H - 40).Take(40).Average();
+        Assert.True(headerW < 0.7 || footerW < 0.7,
+            $"header/footer both failed to weigh down (h={headerW:F2}, f={footerW:F2})");
+        Assert.True(map.RowWeight.Skip(90).Take(80).Average() > 0.5,
+            $"content should stay scroll, got {map.RowWeight.Skip(90).Take(80).Average():F2}");
     }
 
     [Fact]

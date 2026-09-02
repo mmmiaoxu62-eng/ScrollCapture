@@ -49,6 +49,19 @@ public sealed class OverlapDetector
     /// </param>
     public OverlapResult Detect(BitmapSource previous, BitmapSource next, double? priorOverlapPx = null,
         bool[]? drivingBandMask = null, RegionWeightMap? weightMap = null)
+        => DetectImpl(previous, next, priorOverlapPx, drivingBandMask, weightMap, staticMaskA: null);
+
+    /// <summary>
+    /// INTERNAL variant: same algorithm, ONE more guard — rows that are constant at the
+    /// same absolute position are excluded on the A side too (fixed footers live inside
+    /// A's alignment band). Public Detect passes null here => byte-identical original.
+    /// </summary>
+    internal OverlapResult DetectWithMaskA(BitmapSource previous, BitmapSource next,
+        double? priorOverlapPx, bool[]? drivingBandMask, bool[] staticMaskA)
+        => DetectImpl(previous, next, priorOverlapPx, drivingBandMask, weightMap: null, staticMaskA);
+
+    private OverlapResult DetectImpl(BitmapSource previous, BitmapSource next, double? priorOverlapPx,
+        bool[]? drivingBandMask, RegionWeightMap? weightMap, bool[]? staticMaskA)
     {
         if (previous.PixelWidth != next.PixelWidth || previous.PixelHeight != next.PixelHeight)
         {
@@ -79,11 +92,12 @@ public sealed class OverlapDetector
         // block — conservative: a block counts as weighted-down if ANY member is fixed.
         double[]? rowWSmall = rowW != null ? DownscaleRowWeights(rowW, sh, DownscaleFactor) : null;
         double[]? colWSmall = colW != null ? DownscaleColWeights(colW, sw, DownscaleFactor) : null;
+        bool[] staticMaskASmall = staticMaskA != null ? DownscaleMask(staticMaskA, sh, DownscaleFactor) : null;
 
         if (priorOverlapPx is double prior && prior >= MinOverlapRatio * height && prior <= MaxOverlapRatio * height)
         {
             OverlapResult narrowed = Scan(smallA, smallB, grayA, grayB, sw, sh, width, height,
-                staticMask, staticMaskSmall, colMask, colMaskSmall, rowWSmall, colWSmall, rowW, colW,
+                staticMask, staticMaskSmall, colMask, colMaskSmall, staticMaskA, staticMaskASmall, rowWSmall, colWSmall, rowW, colW,
                 priorMinK: (int)((prior - 12) / DownscaleFactor),
                 priorMaxK: (int)((prior + 12) / DownscaleFactor));
             if (narrowed.Success)
@@ -92,14 +106,14 @@ public sealed class OverlapDetector
             }
             // prior was wrong or too narrow - fall through to global scan
             OverlapResult global = Scan(smallA, smallB, grayA, grayB, sw, sh, width, height,
-                staticMask, staticMaskSmall, colMask, colMaskSmall, rowWSmall, colWSmall, rowW, colW, null, null);
+                staticMask, staticMaskSmall, colMask, colMaskSmall, staticMaskA, staticMaskASmall, rowWSmall, colWSmall, rowW, colW, null, null);
             return global.Success
                 ? global with { Note = (global.Note ?? "") + " | prior mismatch, global hit" }
                 : global;
         }
 
         return Scan(smallA, smallB, grayA, grayB, sw, sh, width, height,
-            staticMask, staticMaskSmall, colMask, colMaskSmall, rowWSmall, colWSmall, rowW, colW, null, null);
+            staticMask, staticMaskSmall, colMask, colMaskSmall, staticMaskA, staticMaskASmall, rowWSmall, colWSmall, rowW, colW, null, null);
     }
 
     private static double[]? DownscaleRowWeights(double[] rowWeight, int smallHeight, int factor)
@@ -115,6 +129,22 @@ public sealed class OverlapDetector
                 w = Math.Min(w, v);
             }
             result[s] = w;
+        }
+        return result;
+    }
+
+    private static bool[]? DownscaleMask(bool[] mask, int smallHeight, int factor)
+    {
+        var result = new bool[smallHeight];
+        for (int s = 0; s < smallHeight; s++)
+        {
+            bool any = false;
+            int start = s * factor;
+            for (int r = start; r < Math.Min(mask.Length, start + factor); r++)
+            {
+                if (mask[r]) { any = true; break; }
+            }
+            result[s] = any;
         }
         return result;
     }
@@ -139,7 +169,7 @@ public sealed class OverlapDetector
     private static OverlapResult Scan(
         byte[] smallA, byte[] smallB, byte[] grayA, byte[] grayB,
         int sw, int sh, int width, int height,
-        bool[] staticMask, bool[] staticMaskSmall, bool[] colMask, bool[] colMaskSmall,
+        bool[] staticMask, bool[] staticMaskSmall, bool[] colMask, bool[] colMaskSmall, bool[]? staticMaskA, bool[]? staticMaskASmall,
         double[]? rowWeightSmall, double[]? colWeightSmall,
         double[]? rowWeight, double[]? colWeight,
         int? priorMinK, int? priorMaxK)
@@ -166,7 +196,7 @@ public sealed class OverlapDetector
         // descending: on ties prefer the LARGER overlap (more conservative delta)
         for (int k = maxK; k >= minK; k--)
         {
-            double score = RobustRowScore(smallA, smallB, sw, sh, sh, sh - k, 0, k, colStep: 2, TrimWorstRowsPercent, staticMaskSmall, colMaskSmall, rowWeightSmall, colWeightSmall);
+            double score = RobustRowScore(smallA, smallB, sw, sh, sh, sh - k, 0, k, colStep: 2, TrimWorstRowsPercent, staticMaskSmall, colMaskSmall, rowWeightSmall, colWeightSmall, staticMaskASmall);
             if (score < best)
             {
                 second = best;
@@ -201,7 +231,7 @@ public sealed class OverlapDetector
         int bestRefK = rMin;
         for (int k = rMin; k <= rMax; k++)
         {
-            double score = RobustRowScore(grayA, grayB, width, height, height, height - k, 0, k, colStep: 3, TrimWorstRowsPercent, staticMask, colMask, rowWeight, colWeight);
+            double score = RobustRowScore(grayA, grayB, width, height, height, height - k, 0, k, colStep: 3, TrimWorstRowsPercent, staticMask, colMask, rowWeight, colWeight, staticMaskA);
             if (score < bestRef)
             {
                 bestRef = score;
@@ -217,7 +247,7 @@ public sealed class OverlapDetector
         int bandOffset = Math.Max(1, bestRefK / 3);
         int bandRows = Math.Min(bestRefK / 2, 120);
         double bandDiff = RobustRowScore(grayA, grayB, width, height, height,
-            height - bestRefK + bandOffset, bandOffset, bandRows, colStep: 4, trimPercent: 0, staticMask, colMask, rowWeight, colWeight);
+            height - bestRefK + bandOffset, bandOffset, bandRows, colStep: 4, trimPercent: 0, staticMask, colMask, rowWeight, colWeight, staticMaskA);
         if (bandDiff > bestRef * 2.5 + 4)
         {
             return OverlapResult.Fail($"band mismatch {bandDiff:F2} vs {bestRef:F2}");
@@ -259,7 +289,7 @@ public sealed class OverlapDetector
     /// otherwise flatten the score curve, so they are excluded from the scoring rows.
     /// Masks are indexed by absolute row of frame B; the caller skips those rows.
     /// </summary>
-    private static bool[] ComputeStaticMask(byte[] grayA, byte[] grayB, int width, int height)
+    internal static bool[] ComputeStaticMask(byte[] grayA, byte[] grayB, int width, int height)
     {
         var mask = new bool[height];
         for (int y = 0; y < height; y++)
@@ -323,7 +353,7 @@ public sealed class OverlapDetector
         int aHeight, int bHeight,
         int aStart, int bStart, int count,
         int colStep, int trimPercent, bool[]? staticMaskB, bool[]? colMask = null,
-        double[]? rowWeight = null, double[]? colWeight = null)
+        double[]? rowWeight = null, double[]? colWeight = null, bool[]? staticMaskA = null)
     {
         if (count <= 0 || aStart < 0 || bStart < 0)
         {
@@ -348,6 +378,11 @@ public sealed class OverlapDetector
                 if (staticMaskB != null && bAbs >= 0 && bAbs < staticMaskB.Length && staticMaskB[bAbs])
                 {
                     continue; // fixed chrome — skip, it matches any offset
+                }
+                int aAbs = aStart + j;
+                if (staticMaskA != null && aAbs >= 0 && aAbs < staticMaskA.Length && staticMaskA[aAbs])
+                {
+                    continue; // fixed chrome on the A side (e.g. bottom footer band)
                 }
                 int aBase = (aStart + j) * width;
                 int bBase = bAbs * width;
@@ -467,6 +502,11 @@ public sealed class OverlapDetector
         return wNorm > 0 ? wSum / wNorm : double.MaxValue;
     }
 }
+
+
+
+
+
 
 
 
