@@ -21,6 +21,9 @@ public partial class SettingsWindow : Window
         MaxFramesBox.Text = settings.MaxFrames.ToString();
         DirectionBox.SelectedIndex = settings.ScrollDirection == "Up" ? 1 : 0;
         AutoStartBox.IsChecked = settings.AutoStart;
+        WheelStepBox.Text = settings.ScrollWheelStep.ToString();
+        DelayBox.Text = settings.ScrollDelayMs.ToString();
+        FixedDebugBox.IsChecked = settings.FixedRegionDebug;
     }
 
     private void OnHotkeyKeyDown(object sender, KeyEventArgs e)
@@ -83,6 +86,20 @@ public partial class SettingsWindow : Window
         _settings.SaveDirectory = SaveDirBox.Text.Trim();
         _settings.MaxImageHeight = maxHeight;
         _settings.MaxFrames = maxFrames;
+        if (!int.TryParse(WheelStepBox.Text.Trim(), out int wheelStep) || wheelStep < 1 || wheelStep > 8)
+        {
+            MessageBox.Show(this, "每步滚动档位需为 1~8 的整数。", "设置", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        if (!int.TryParse(DelayBox.Text.Trim(), out int delayMs) || delayMs < 200 || delayMs > 2000)
+        {
+            MessageBox.Show(this, "帧间隔需为 200~2000 的整数毫秒。", "设置", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        _settings.ScrollWheelStep = wheelStep;
+        _settings.ScrollDelayMs = delayMs;
+        _settings.FixedRegionDebug = FixedDebugBox.IsChecked == true;
         _settings.ScrollDirection = DirectionBox.SelectedIndex == 1 ? "Up" : "Down";
         _settings.AutoStart = AutoStartBox.IsChecked == true;
         SettingsService.Save(_settings);

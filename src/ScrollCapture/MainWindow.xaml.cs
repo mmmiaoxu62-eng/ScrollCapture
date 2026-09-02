@@ -135,7 +135,12 @@ public partial class MainWindow : Window
         bool scrollDown = _settings.ScrollDirection != "Up";
         _session = new LongCaptureSession(
             region,
-            options: new ScrollOptions { ScrollDown = scrollDown },
+            options: new ScrollOptions
+            {
+                ScrollDown = scrollDown,
+                WheelStep = Math.Clamp(_settings.ScrollWheelStep, 1, 8),
+                DelayPerScrollMs = Math.Clamp(_settings.ScrollDelayMs, 200, 2000),
+            },
             maxFrames: maxFrames,
             framesDirectory: framesDir,
             token: _sessionCts.Token,

@@ -42,6 +42,29 @@
             <TextBox x:Name="MaxFramesBox" Grid.Column="1" Padding="5,5" />
         </Grid>
 
+        <Grid Margin="0,8,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="160" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="每步滚动档位 (1-8)" VerticalAlignment="Center" />
+            <TextBox x:Name="WheelStepBox" Grid.Column="1" Padding="5,5" />
+        </Grid>
+
+        <Grid Margin="0,8,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="160" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="帧间隔 ms (200-2000)" VerticalAlignment="Center" />
+            <TextBox x:Name="DelayBox" Grid.Column="1" Padding="5,5" />
+        </Grid>
+
+        <CheckBox x:Name="FixedDebugBox"
+                  Content="固定区调试开关（输出 fixeddebug 报告）
+                  次截图时生成逐帧判定图"
+                  Margin="0,14,0,0" />
+
         <Grid Margin="0,16,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="160" />
