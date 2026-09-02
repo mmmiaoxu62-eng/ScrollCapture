@@ -167,13 +167,18 @@ public class FixedRegionDetectorTests
     public void SlightColorShift_DoesNotFlipWholePage()
     {
         var (a, b) = Pair(scrollPx: ProvenScroll, headerH: ProvenHeaderH, footerH: 0);
-        // shift content color slightly (+10)
+        // the FIXED header changes slightly (+4); content stays identical to the page
         byte[] wa = FrameSimilarity.ToBgr32Buffer(a);
         byte[] wb = FrameSimilarity.ToBgr32Buffer(b);
         for (int i = 0; i < wb.Length; i += 4)
         {
-            wb[i] = (byte)Math.Clamp(wb[i] + 4, 0, 255);
-            wb[i + 1] = (byte)Math.Clamp(wb[i + 1] + 4, 0, 255);
+            // header region = rows < ProvenHeaderH
+            int rowIndex = i / (W * 4);
+            if (rowIndex < ProvenHeaderH)
+            {
+                wb[i] = (byte)Math.Clamp(wb[i] + 4, 0, 255);
+                wb[i + 1] = (byte)Math.Clamp(wb[i + 1] + 4, 0, 255);
+            }
         }
         BitmapSource b2 = TestImages.CreateBgr32(wb, W, H);
         RegionWeightMap? map = _detector.Update(TestImages.CreateBgr32(wa, W, H), b2, null);
