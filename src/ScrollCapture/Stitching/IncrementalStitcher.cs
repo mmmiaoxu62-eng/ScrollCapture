@@ -200,16 +200,16 @@ public sealed class IncrementalStitcher
 
     private void BlankStaticColumns(WriteableBitmap canvas)
     {
+        // _blankMask: TRUE = blank this column below the first frame
         bool[] colMask = ColumnMotion.ToColumnMask(_blankMask, _width);
         int blankFromY = _height; // first frame keeps the fixed UI at the top
         int blankBottom = (int)_totalHeight;
 
-        // rasterize contiguous runs of fixed columns and overwrite with white
         int runStart = -1;
         for (int x = 0; x <= _width; x++)
         {
-            bool fixedCol = x < _width && !colMask[x];
-            if (fixedCol)
+            bool shouldBlank = x < _width && colMask[x];
+            if (shouldBlank)
             {
                 if (runStart < 0) runStart = x;
             }
