@@ -284,8 +284,10 @@ public sealed class LongCaptureSession : IDisposable
                     ScheduleSave(retryFrame, _capturedCount + 500);
                     double? priorD = deltas.Count > 0 ? deltas[^1] : null;
                     _stitcher.Add(retryFrame, priorD);
-                    visionFailCount = EvaluateVision(retryFrame, visionFailCount,
+                    int afterRetry = EvaluateVision(retryFrame, visionFailCount,
                         ref visionSuccessStreak, ref waitScale, ref degraded);
+                    // a failed retry is the SAME failure, not a second one — never double-count
+                    visionFailCount = afterRetry < visionFailCount ? afterRetry : visionFailCount;
                 }
 
                 if (visionFailCount >= 4 && i >= 4)
