@@ -430,6 +430,32 @@ public sealed class LongCaptureSession : IDisposable
         }
         double timeoutMs = _options.DelayPerScrollMs * _options.StabilityTimeoutFactor;
         var sw = Stopwatch.StartNew();
+
+        if (_ownController != null)
+        {
+            // REAL capure path: allocation-free strip probe (one DIB + two buffers,
+            // 80px strip near the upper third). Behavior identical to the full-frame
+            // poll, but zero per-60ms allocations.
+            using var probe = new StabilityProbe(ProbeStripRect());
+            bool previousChanged = true;
+            while (sw.ElapsedMilliseconds < timeoutMs)
+            {
+                bool stillChanging = probe.Snapshot(ProbeStripRect());
+                if (!previousChanged && !stillChanging)
+                {
+                    if (_options.StabilityGraceMs > 0)
+                    {
+                        await Task.Delay(_options.StabilityGraceMs, _token).ConfigureAwait(false);
+                    }
+                    return; // two identical snapshots in a row => stable
+                }
+                previousChanged = stillChanging;
+                await Task.Delay(_options.StabilityProbeIntervalMs, _token).ConfigureAwait(false);
+            }
+            return; // timed out: assume settled, ladder catches problems
+        }
+
+        // injected (tests) path unchanged
         BitmapSource? previousProbe = null;
         while (sw.ElapsedMilliseconds < timeoutMs)
         {
@@ -445,7 +471,14 @@ public sealed class LongCaptureSession : IDisposable
             previousProbe = probe;
             await Task.Delay(_options.StabilityProbeIntervalMs, _token).ConfigureAwait(false);
         }
-        // timed out: assume settled (or nearly), the vision ladder will catch problems
+    }
+
+    /// <summary>Strip above mid-region: full width, 80px tall (or smaller region).</summary>
+    private Int32Rect ProbeStripRect()
+    {
+        int stripH = Math.Min(80, Math.Max(24, _region.Height / 4));
+        int y = _region.Y + Math.Max(0, _region.Height * 3 / 10);
+        return new Int32Rect(_region.X, y, _region.Width, stripH);
     }
 
     /// <summary>
