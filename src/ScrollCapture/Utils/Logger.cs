@@ -11,6 +11,8 @@ namespace ScrollCapture.Utils;
 public static class Logger
 {
     private static readonly object Gate = new();
+    private const long MaxLogBytes = 2L * 1024 * 1024;
+    private const int MaxRotatedFiles = 5;
 
     public static string CurrentLogFilePath { get; } = Path.Combine(AppPaths.DataDir, "logs", "app.log");
 
@@ -27,6 +29,42 @@ public static class Logger
         }
     }
 
+    private static void RotateIfNeeded()
+    {
+        try
+        {
+            var info = new FileInfo(CurrentLogFilePath);
+            if (!info.Exists || info.Length < MaxLogBytes)
+            {
+                return;
+            }
+            string dir = Path.GetDirectoryName(CurrentLogFilePath)!;
+            string rotated = Path.Combine(dir,
+                $"app_{DateTime.Now:yyyyMMdd_HHmmss}.log");
+            File.Move(CurrentLogFilePath, rotated, overwrite: true);
+
+            foreach (var old in Directory.GetFiles(dir, "app_*.log")
+                         .OrderByDescending(f => f))
+            {
+                if (Path.GetFileName(old) == Path.GetFileName(rotated))
+                {
+                    continue;
+                }
+                var files = Directory.GetFiles(dir, "app_*.log")
+                    .OrderByDescending(f => f).ToList();
+                for (int i = MaxRotatedFiles; i < files.Count; i++)
+                {
+                    try { File.Delete(files[i]); } catch { }
+                }
+                break;
+            }
+        }
+        catch
+        {
+            // rotation is best-effort
+        }
+    }
+
     private static void Write(string level, string message)
     {
         try
@@ -37,6 +75,7 @@ public static class Logger
             lock (Gate)
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(CurrentLogFilePath)!);
+                RotateIfNeeded();
                 File.AppendAllText(CurrentLogFilePath, line + Environment.NewLine, Encoding.UTF8);
             }
         }
