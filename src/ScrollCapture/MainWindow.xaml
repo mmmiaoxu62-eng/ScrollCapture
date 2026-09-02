@@ -33,6 +33,11 @@
                 Padding="0,8"
                 Content="设置…"
                 Click="OnSettingsClick" />
+        <Button x:Name="DiagnosticsButton"
+                Margin="0,8,0,0"
+                Padding="0,8"
+                Content="导出诊断包…"
+                Click="OnDiagnosticsClick" />
 
         <TextBlock x:Name="StatusText"
                    Margin="0,12,0,0"

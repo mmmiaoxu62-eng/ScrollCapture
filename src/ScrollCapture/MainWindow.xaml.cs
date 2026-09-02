@@ -45,6 +45,25 @@ public partial class MainWindow : Window
 
     private void OnSettingsClick(object sender, RoutedEventArgs e) => App.CurrentApp.ShowSettings();
 
+    private void OnDiagnosticsClick(object sender, RoutedEventArgs e)
+    {
+        string? zip = DiagnosticsExporter.Export(_settings.SaveDirectory);
+        if (zip == null)
+        {
+            StatusText.Text = "诊断包导出失败（详见日志）。";
+            return;
+        }
+        StatusText.Text = $"诊断包已导出：{zip}";
+        try
+        {
+            System.Diagnostics.Process.Start("explorer.exe", "/select," + zip);
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn("open explorer failed: " + ex.Message);
+        }
+    }
+
     /// <summary>Hotkey entry point: capture/stop toggle.</summary>
     public void HandleHotkey()
     {
