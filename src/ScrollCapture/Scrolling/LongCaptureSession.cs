@@ -410,10 +410,8 @@ public sealed class LongCaptureSession : IDisposable
     private bool[]? _driveMask;
 
     /// <summary>
-    /// Scroll animation detector: poll a NARROW STRIP until it stops changing
-    /// (or timeout). Full-frame polling cost ~60ms*16MB per scroll became the
-    /// top GC/DWM churn source — the strip (80px) is allocation-free and samples
-    /// the same moving content near the upper third of the region.
+    /// Scroll animation detector: poll tiny a/b comparisons until the picture stops
+    /// changing (or timeout). Prevents capturing mid-smooth-scroll frames.
     /// </summary>
     private async Task WaitForStabilityAsync(double scaledDelayMs)
     {
@@ -423,40 +421,28 @@ public sealed class LongCaptureSession : IDisposable
         }
         double timeoutMs = _options.DelayPerScrollMs * _options.StabilityTimeoutFactor;
         var sw = Stopwatch.StartNew();
-
-        using var probe = new StabilityProbe(ProbeStripRect());
-        bool previousChanged = true;
+        BitmapSource? previousProbe = null;
         while (sw.ElapsedMilliseconds < timeoutMs)
         {
-            bool stillChanging = probe.Snapshot(ProbeStripRect());
-            if (!previousChanged && !stillChanging)
+            BitmapSource probe = _capture(_region);
+            if (previousProbe != null && FrameSimilarity.IsNearlyIdentical(previousProbe, probe))
             {
                 if (_options.StabilityGraceMs > 0)
                 {
                     await Task.Delay(_options.StabilityGraceMs, _token).ConfigureAwait(false);
                 }
-                return; // two identical snapshots in a row => stable
+                return; // picture still => proceed to the real frame
             }
-            previousChanged = stillChanging;
+            previousProbe = probe;
             await Task.Delay(_options.StabilityProbeIntervalMs, _token).ConfigureAwait(false);
         }
         // timed out: assume settled (or nearly), the vision ladder will catch problems
-    }
-
-    /// <summary>Strip above mid-region: full width, 80px tall (or smaller region).</summary>
-    private Int32Rect ProbeStripRect()
-    {
-        int stripH = Math.Min(80, Math.Max(24, _region.Height / 4));
-        int y = _region.Y + Math.Max(0, _region.Height * 3 / 10);
-        return new Int32Rect(_region.X, y, _region.Width, stripH);
     }
 
     /// <summary>
     /// Queues PNG persistence off the hot path (capture loop keeps the cadence).
     /// Best effort; drained with a timeout in FinishAsync.
     /// </summary>
-    private static readonly SemaphoreSlim SaveThrottle = new(2);
-
     private void ScheduleSave(BitmapSource frame, int index)
     {
         lock (_saveGate)
@@ -466,10 +452,8 @@ public sealed class LongCaptureSession : IDisposable
                 // don't let the queue grow without bound
                 return;
             }
-            _saveTasks.Add(Task.Run(async () =>
+            _saveTasks.Add(Task.Run(() =>
             {
-                // throttle: simultaneous PNG encodes spike CPU & get scanned by Defender
-                await SaveThrottle.WaitAsync().ConfigureAwait(false);
                 try
                 {
                     Directory.CreateDirectory(_framesDirectory);
@@ -482,10 +466,6 @@ public sealed class LongCaptureSession : IDisposable
                 catch (Exception ex)
                 {
                     Logger.Warn($"Failed to save frame {index}: {ex.Message}");
-                }
-                finally
-                {
-                    SaveThrottle.Release();
                 }
             }));
         }

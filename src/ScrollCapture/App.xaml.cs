@@ -41,7 +41,6 @@ public partial class App : Application
         }
 
         Settings = SettingsService.Load();
-        TempSessionCleaner.PruneOlderThan(14);
 
         _hotkeyManager = new HotkeyManager();
         CaptureHotkeyRegistered = _hotkeyManager.Register(Settings.CaptureHotkey);

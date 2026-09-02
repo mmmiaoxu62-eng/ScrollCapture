@@ -14,8 +14,6 @@ public static class ColumnMotion
 {
     public const int BandCount = 8;
 
-    public static bool[] EmptyMask => new bool[BandCount];
-
     /// <summary>Changed-row fraction a band needs to count as scroll-driving.</summary>
     public const double BandDrivingThreshold = 0.05;
 
