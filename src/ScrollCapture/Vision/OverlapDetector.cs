@@ -292,18 +292,26 @@ public sealed class OverlapDetector
             return double.MaxValue;
         }
 
-        var rowDiffs = new double[rows];
+        // Variance-weighted row scoring: flat rows (uniform spacing/gaps in chat lists)
+        // match ANY offset and flatten the score curve — their weight goes to ~0 so the
+        // text rows shape the alignment peak.
+        var rowRaw = new double[rows];
+        var rowWeight = new double[rows];
         int used = 0;
         for (int j = 0; j < rows; j++)
         {
             int bAbs = bStart + j;
             if (staticMaskB != null && bAbs >= 0 && bAbs < staticMaskB.Length && staticMaskB[bAbs])
             {
-                continue; // fixed chrome 鈥?skip, it matches any offset
+                continue; // fixed chrome — skip, it matches any offset
             }
             int aBase = (aStart + j) * width;
             int bBase = bAbs * width;
             long sum = 0;
+            long sumA = 0;
+            long sqA = 0;
+            long sumB = 0;
+            long sqB = 0;
             int cols = 0;
             for (int x = 0; x < width; x += colStep)
             {
@@ -311,14 +319,26 @@ public sealed class OverlapDetector
                 {
                     continue; // non-driving band — diluted scoring
                 }
-                sum += Math.Abs(a[aBase + x] - b[bBase + x]);
+                int va = a[aBase + x];
+                int vb = b[bBase + x];
+                sum += Math.Abs(va - vb);
+                sumA += va;
+                sqA += (long)va * va;
+                sumB += vb;
+                sqB += (long)vb * vb;
                 cols++;
             }
             if (cols == 0)
             {
                 continue;
             }
-            rowDiffs[used++] = sum / (double)cols;
+            double meanA = sumA / (double)cols;
+            double meanB = sumB / (double)cols;
+            double stdA = Math.Sqrt(Math.Max(0, sqA / (double)cols - meanA * meanA));
+            double stdB = Math.Sqrt(Math.Max(0, sqB / (double)cols - meanB * meanB));
+            rowRaw[used] = sum / (double)cols;
+            rowWeight[used] = Math.Min(stdA, stdB) + 0.5;
+            used++;
         }
 
         // If everything was masked (fully static content) -> indistinguishable, fail.
@@ -327,22 +347,30 @@ public sealed class OverlapDetector
         {
             return double.MaxValue;
         }
-        if (used < rowDiffs.Length)
+
+        // trim worst raw rows (dynamic content), then take the WEIGHTED mean
+        if (trimPercent > 0 && used > 1)
         {
-            var compact = new double[used];
-            Array.Copy(rowDiffs, compact, used);
-            rowDiffs = compact;
+            var idx = Enumerable.Range(0, used).OrderBy(i => rowRaw[i]).ToArray();
+            double wSum = 0;
+            double wTot = 0;
+            for (int k = 0; k < effectiveRows; k++)
+            {
+                int i = idx[k];
+                wSum += rowRaw[i] * rowWeight[i];
+                wTot += rowWeight[i];
+            }
+            return wTot > 0 ? wSum / wTot : double.MaxValue;
         }
-        if (trimPercent > 0 && rowDiffs.Length > 1)
-        {
-            Array.Sort(rowDiffs);
-        }
+
         double total = 0;
-        for (int j = 0; j < Math.Min(effectiveRows, rowDiffs.Length); j++)
+        double totalW = 0;
+        for (int j = 0; j < Math.Min(effectiveRows, used); j++)
         {
-            total += rowDiffs[j];
+            total += rowRaw[j] * rowWeight[j];
+            totalW += rowWeight[j];
         }
-        return total / effectiveRows;
+        return totalW > 0 ? total / totalW : double.MaxValue;
     }
 }
 
