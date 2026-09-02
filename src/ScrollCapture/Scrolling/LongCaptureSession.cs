@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Media.Imaging;
@@ -99,10 +99,12 @@ public sealed class LongCaptureSession : IDisposable
         Action? scrollOnce = null,
         Func<OffsetSnapshot?>? probeGetter = null,
         CancellationToken token = default,
-        int maxImageHeight = 30000)
+        int maxImageHeight = 30000,
+        bool fixedRegionDebug = false)
     {
         _region = region;
-        _stitcher = new IncrementalStitcher(maxImageHeight);
+        string? debugDir = fixedRegionDebug ? Path.Combine(_framesDirectory ?? AppPaths.DataDir + "\\temp", "fixeddebug") : null;
+        _stitcher = new IncrementalStitcher(maxImageHeight, debugDir);
         _options = options ?? new ScrollOptions();
         _maxFrames = Math.Max(1, maxFrames);
         _framesDirectory = framesDirectory ?? Path.Combine(AppPaths.DataDir, "temp", $"session_{DateTime.Now:yyyyMMdd_HHmmss}");
@@ -113,7 +115,7 @@ public sealed class LongCaptureSession : IDisposable
 
         if (scrollOnce != null)
         {
-            _scrollOnce = scrollOnce;   // injected (tests) — no cursor management
+            _scrollOnce = scrollOnce;   // injected (tests) 鈥?no cursor management
             _probeGetter = probeGetter; // still usable in tests
         }
         else
@@ -224,7 +226,7 @@ public sealed class LongCaptureSession : IDisposable
 
                 // incremental stitch (also feeds the vision ladder below).
                 // "Skipped" (identical OR motion-static) advances the bottom-stop counter
-                // — near-static content stops fast instead of phantom-pasting.
+                // 鈥?near-static content stops fast instead of phantom-pasting.
                 if (previous != null && _driveMask == null)
                 {
                     // classify scroll-driving column bands from the first real pair;
@@ -347,19 +349,19 @@ public sealed class LongCaptureSession : IDisposable
     ///  - success streak >= 3 restores the wheel step (recover speed)
     ///  - failure: halve wheel step + double wait (degraded)
     ///  - 2 consecutive failures: caller aborts with Unstable
-    /// Sub-resolution frames (unit tests) are skipped — no penalty.
+    /// Sub-resolution frames (unit tests) are skipped 鈥?no penalty.
     /// </summary>
     private int EvaluateVision(BitmapSource current,
         int visionFailCount, ref int visionSuccessStreak, ref double waitScale, ref int degraded)
     {
         if (current.PixelHeight < 240 || _stitcher.Steps.Count == 0)
         {
-            return 0; // tiny synthetic frames — not a real vision target
+            return 0; // tiny synthetic frames 鈥?not a real vision target
         }
         StitchStepReport last = _stitcher.Steps[^1];
         if (last.Skipped)
         {
-            return visionFailCount; // no content change — handled by the identical-stop logic
+            return visionFailCount; // no content change 鈥?handled by the identical-stop logic
         }
 
         if (!last.UsedFallback)
@@ -392,7 +394,7 @@ public sealed class LongCaptureSession : IDisposable
         return visionFailCount;
     }
 
-    /// <summary>Latest estimated scroll delta (px) — used as the visual prior next round.</summary>
+    /// <summary>Latest estimated scroll delta (px) 鈥?used as the visual prior next round.</summary>
     private double? LastDeltaEstimate
     {
         get
@@ -476,3 +478,4 @@ public sealed class LongCaptureSession : IDisposable
         _ownController?.Dispose();
     }
 }
+

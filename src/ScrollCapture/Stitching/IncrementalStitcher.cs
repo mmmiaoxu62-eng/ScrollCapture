@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -27,6 +28,9 @@ public sealed class IncrementalStitcher
 
     private readonly int _maxImageHeight;
     private readonly OverlapDetector _detector = new();
+    private readonly FixedRegionDetector _fixedDetector = new();
+    private readonly string? _debugDir;
+    private int _pairIndex;
 
     private int _width;
     private int _height;
@@ -47,9 +51,10 @@ public sealed class IncrementalStitcher
     public IReadOnlyList<string> Warnings { get; } = new List<string>();
     public bool Truncated { get; private set; }
 
-    public IncrementalStitcher(int maxImageHeight)
+    public IncrementalStitcher(int maxImageHeight, string? debugDir = null)
     {
         _maxImageHeight = Math.Max(1, maxImageHeight);
+        _debugDir = debugDir;
     }
 
     public void Start(BitmapSource firstFrame)
@@ -110,7 +115,29 @@ public sealed class IncrementalStitcher
             ? pd
             : _lastDelta > 0 && _lastDelta < _height - 10 ? _lastDelta : null;
         double? priorOverlap = priorDelta is double p && p > 0 ? _height - p : null;
-        OverlapResult overlap = _detector.Detect(_lastFrame, current, priorOverlap, _bandMask);
+
+        // Fixed/Sticky region layer: purely optional input for the existing detector.
+        // null (no fixed evidence / low confidence / any error) => ORIGINAL path.
+        RegionWeightMap? weightMap = null;
+        try
+        {
+            RegionWeightMap? wm = _fixedDetector.Update(_lastFrame, current, _bandMask);
+            if (wm?.IsReliable == true)
+            {
+                weightMap = wm;
+            }
+        }
+        catch
+        {
+            weightMap = null;
+        }
+
+        OverlapResult overlap = _detector.Detect(_lastFrame, current, priorOverlap, _bandMask, weightMap);
+
+        if (_debugDir != null)
+        {
+            WritePairDebug(current, weightMap, overlap);
+        }
 
         int delta = _lastDelta;
         bool accepted = overlap.Success
@@ -177,6 +204,73 @@ public sealed class IncrementalStitcher
     /// KEPT only for the first frame's height — everything below is blanked, because the
     /// fixed UI (sidebar) would otherwise repeat once per frame. Result matches the
     /// desired "固定区出现一次，其余留白" layout.</summary>
+    private void WritePairDebug(BitmapSource current, RegionWeightMap? weightMap, OverlapResult overlap)
+    {
+        try
+        {
+            Directory.CreateDirectory(_debugDir!);
+            int idx = _pairIndex++;
+            string prefix = Path.Combine(_debugDir!, $"pair_{idx:D4}");
+            var lines = new System.Text.StringBuilder();
+            lines.AppendLine($"pair={idx}");
+            lines.AppendLine($"dy0={_fixedDetector.LastDy0:F1}");
+            lines.AppendLine($"globalDy={_fixedDetector.LastDy0:F1}");
+            lines.AppendLine($"dy0Confidence={_fixedDetector.LastOverlapConfidence:F2}");
+            foreach (var r in _fixedDetector.LastStrips)
+            {
+                lines.AppendLine($"strip={r.StripIndex} y=[{r.Y0}..{r.Y1}) fixedSim={r.FixedSim:F3} scrollSim={r.ScrollSim:F3} margin={r.Margin:F3} class={r.Classification} weight={r.EffectiveWeight:F2}");
+            }
+            lines.AppendLine($"overlapHeight={overlap.OverlapHeight}");
+            lines.AppendLine($"overlapConfidence={overlap.Confidence:F2}");
+            string wmText = weightMap == null
+                ? "null"
+                : weightMap.Summary + " conf=" + weightMap.Confidence.ToString("F2");
+            lines.AppendLine("weightMap=" + wmText);
+            File.WriteAllText(prefix + ".txt", lines.ToString(), System.Text.Encoding.UTF8);
+
+            byte[] src = FrameSimilarity.ToBgr32Buffer(current);
+            int w = current.PixelWidth;
+            int h = current.PixelHeight;
+            int sw = Math.Max(1, w / 4);
+            int sh = Math.Max(1, h / 4);
+            var small = new byte[sw * sh * 4];
+            Array.Fill(small, (byte)0);
+            for (int y = 0; y < sh; y++)
+            {
+                int row = (y * 4) * w * 4;
+                for (int x = 0; x < sw; x++)
+                {
+                    int si = y * sw * 4 + x * 4;
+                    int di = row + x * 4 * 4;
+                    double rw = weightMap != null ? weightMap.RowWeight[Math.Min(h - 1, y * 4)] : 1.0;
+                    double cw = weightMap != null ? weightMap.ColWeight[Math.Min(w - 1, x * 4)] : 1.0;
+                    double eff = Math.Min(rw, cw);
+                    small[si] = src[di];
+                    small[si + 1] = src[di + 1];
+                    small[si + 2] = src[di + 2];
+                    small[si + 3] = 255;
+                    if (eff < 0.35)
+                    {
+                        small[si] = 235; small[si + 1] = 60; small[si + 2] = 60;   // red
+                    }
+                    else if (eff < 0.75)
+                    {
+                        small[si] = 60; small[si + 1] = 120; small[si + 2] = 235; // blue
+                    }
+                }
+            }
+            var bmp = BitmapSource.Create(sw, sh, 96, 96, PixelFormats.Bgr32, null, small, sw * 4);
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bmp));
+            using var fs = File.Create(prefix + ".png");
+            encoder.Save(fs);
+        }
+        catch
+        {
+            // debug output must never break a capture
+        }
+    }
+
     public BitmapSource? Finish()
     {
         if (_segments.Count == 0 || _totalHeight <= 0)

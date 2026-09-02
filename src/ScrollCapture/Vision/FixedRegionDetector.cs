@@ -1,4 +1,4 @@
-using System.Windows.Media.Imaging;
+﻿using System.Windows.Media.Imaging;
 
 namespace ScrollCapture.Vision;
 
@@ -7,8 +7,7 @@ namespace ScrollCapture.Vision;
 /// OverlapDetector; never decides overlap itself).
 ///
 /// Per frame pair:
-///   1. dy0 comes EXCLUSIVELY from the existing OverlapDetector (original path) —
-///      this class only treats dy0 as a prior. Invalid dy0 => null (fallback).
+///   1. dy0 comes EXCLUSIVELY from the existing OverlapDetector (original path) 鈥?///      this class only treats dy0 as a prior. Invalid dy0 => null (fallback).
 ///   2. Horizontal strips (10 row-bands, full-res gray sampling): two-test
 ///        fixedSim  = sim(A[strip], B[strip])                 (same screen position)
 ///        scrollSim = sim(A[strip shifted by dy0], B[strip])  (moved with the page)
@@ -39,6 +38,10 @@ public sealed class FixedRegionDetector
     public double LastDy0 => _lastDy0;
     public double LastOverlapConfidence => _lastOverlapConfidence;
     internal string DebugLastReport { get; private set; } = "";
+
+    public sealed record DebugStripRecord(int StripIndex, int Y0, int Y1, double FixedSim, double ScrollSim, double Margin, string Classification, double EffectiveWeight);
+
+    public IReadOnlyList<DebugStripRecord> LastStrips { get; private set; } = Array.Empty<DebugStripRecord>();
 
     /// <summary>
     /// Returns null when the original path must run untouched (no fixed evidence,
@@ -79,6 +82,7 @@ public sealed class FixedRegionDetector
             double dyFull = _lastDy0;
             var debugLines = new System.Text.StringBuilder();
             debugLines.AppendLine($"dy0={dyFull:F1} conf={dy0.Confidence:F2}");
+            var stripRecords = new List<DebugStripRecord>(RowStripCount);
 
             for (int s = 0; s < RowStripCount; s++)
             {
@@ -112,6 +116,10 @@ public sealed class FixedRegionDetector
                 }
                 _rowEma[s] = _rowEma[s] * (1 - EmuAlpha) + cls * EmuAlpha;
                 debugLines.AppendLine($"s{s}: y[{y0}..{y1}) fixed={fixedSim:F2} scroll={scrollSim:F2}");
+                stripRecords.Add(new DebugStripRecord(s, y0, y1, fixedSim, scrollSim,
+                    Math.Abs(fixedSim - scrollSim),
+                    cls == RegionWeightMap.FixedWeight ? "FIXED" : cls == RegionWeightMap.ScrollWeight ? "SCROLL" : "UNKNOWN",
+                    cls));
                 if (s == 1)
                 {
                     long dA = 0;
@@ -169,6 +177,7 @@ public sealed class FixedRegionDetector
                 // no fixed evidence at all — keep original path
                 debugLines.AppendLine("=> no-fixed-evidence: fallback");
                 DebugLastReport = debugLines.ToString();
+                LastStrips = stripRecords;
                 return null;
             }
 
@@ -209,6 +218,7 @@ public sealed class FixedRegionDetector
             double decisionRatio = (RowStripCount - rawUnknownVotes) / (double)RowStripCount;
             double confidence = Math.Clamp(0.4 + 0.12 * (decisionRatio + rawFixedVotes / (double)RowStripCount), 0.0, 1.0);
             DebugLastReport = debugLines.ToString();
+            LastStrips = stripRecords;
 
             string summary = BuildSummary(rowW, colW);
             return new RegionWeightMap(rowW, colW, confidence, summary);
@@ -285,3 +295,4 @@ public sealed class FixedRegionDetector
         return gray;
     }
 }
+

@@ -200,7 +200,8 @@ public partial class MainWindow : Window
             options: new ScrollOptions(),
             maxFrames: maxFrames,
             framesDirectory: framesDir,
-            token: _sessionCts.Token);
+            token: _sessionCts.Token,
+            fixedRegionDebug: _settings.FixedRegionDebug);
 
         _toast = new ProgressToast();
         _toast.StopRequested += () => _sessionCts.Cancel();

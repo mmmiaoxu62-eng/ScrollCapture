@@ -14,5 +14,8 @@ public class AppSettings
 
     public int MaxFrames { get; set; } = 100;
 
+    /// <summary>Writes per-pair fixed-region debug artifacts (txt report + overlay PNG). Off by default.</summary>
+    public bool FixedRegionDebug { get; set; }
+
     public static AppSettings CreateDefaults() => new();
 }
