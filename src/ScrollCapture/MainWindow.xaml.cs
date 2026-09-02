@@ -17,13 +17,12 @@ public partial class MainWindow : Window
 {
     private readonly AppSettings _settings;
     private bool _captureActive;
-    private bool _pendingAutoMode;
+
 
     private CancellationTokenSource? _sessionCts;
     private LongCaptureSession? _session;
     private ProgressToast? _toast;
-    private ManualCaptureSession? _manualSession;
-    private bool _pendingManual;
+
 
     public bool HotkeyRegistered { get; }
 
@@ -42,22 +41,13 @@ public partial class MainWindow : Window
             : "快捷键注册失败，可直接点击按钮开始截图。";
     }
 
-    private void OnAutoCaptureClick(object sender, RoutedEventArgs e) => BeginCapture(autoMode: true);
-
-    private void OnSingleCaptureClick(object sender, RoutedEventArgs e) => BeginCapture(autoMode: false);
-
-    private void OnManualCaptureClick(object sender, RoutedEventArgs e) => BeginCapture(autoMode: false, manual: true);
+    private void OnAutoCaptureClick(object sender, RoutedEventArgs e) => BeginCapture();
 
     private void OnSettingsClick(object sender, RoutedEventArgs e) => App.CurrentApp.ShowSettings();
 
-    /// <summary>Hotkey entry point: manual session add-frame, else capture/stop toggle.</summary>
+    /// <summary>Hotkey entry point: capture/stop toggle.</summary>
     public void HandleHotkey()
     {
-        if (_manualSession != null)
-        {
-            ManualAddFrame();
-            return;
-        }
         if (_captureActive)
         {
             CancelRunningSession();
@@ -84,7 +74,7 @@ public partial class MainWindow : Window
         base.OnClosing(e);
     }
 
-    public void BeginCapture(bool autoMode = true, bool manual = false)
+    public void BeginCapture()
     {
         if (_captureActive)
         {
@@ -92,13 +82,7 @@ public partial class MainWindow : Window
             CancelRunningSession();
             return;
         }
-        if (_manualSession != null)
-        {
-            return;
-        }
         _captureActive = true;
-        _pendingAutoMode = autoMode;
-        _pendingManual = manual;
 
         Hide(); // keep our own window out of the screenshot
         var virtualScreen = DpiManager.GetVirtualScreenPhysical();
@@ -118,73 +102,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (_pendingManual)
-        {
-            StartManualSession(region.Value);
-        }
-        else if (_pendingAutoMode)
-        {
-            StartAutoSession(region.Value);
-        }
-        else
-        {
-            CaptureSingleAndSave(region.Value);
-        }
-    }
-
-    private void StartManualSession(Int32Rect region)
-    {
-        _manualSession = new ManualCaptureSession(region, _settings.MaxImageHeight);
-        _manualSession.FrameAdded += (count, height) => Dispatcher.BeginInvoke(() =>
-            _toast?.Update($"手动截取… 第 {count} 帧 · 高度 {height}px · Ctrl+Alt+S 加帧 · 点击完成"));
-
-        _toast = new ProgressToast();
-        _toast.StopRequested += () => Dispatcher.BeginInvoke(() => FinishManualSession());
-        _toast.Update("手动模式：自己滚动 → 按 Ctrl+Alt+S 加一帧 · 点击这里完成");
-        _toast.PositionAbove(region, DpiManager.GetVirtualScreenPhysical());
-        StatusText.Text = "手动模式进行中：滚动后按 Ctrl+Alt+S 逐帧添加。";
-    }
-
-    private void ManualAddFrame()
-    {
-        if (_manualSession == null)
-        {
-            return;
-        }
-        _manualSession.AddFrame(out string? warning);
-        if (warning != null)
-        {
-            FinishManualSession(warning);
-        }
-    }
-
-    private void FinishManualSession(string? warning = null)
-    {
-        ManualCaptureSession? manual = _manualSession;
-        _manualSession = null;
-        _toast?.Close();
-        _toast = null;
-        Show();
-
-        if (manual == null || manual.FrameCount == 0)
-        {
-            StatusText.Text = "手动模式：未添加任何帧。";
-            return;
-        }
-
-        BitmapSource? stitched = manual.Finish();
-        if (stitched == null)
-        {
-            StatusText.Text = "手动模式：拼接失败。";
-            return;
-        }
-        string stats = string.Join(" · ", manual.Steps.Select(s =>
-            s.Skipped ? "重复帧" : s.UsedFallback ? "估计" : $"重叠{s.OverlapHeight}px(置信{s.Confidence:F2})"));
-        StatusText.Text = $"手动拼接完成：{stitched.PixelWidth} × {stitched.PixelHeight} px（{manual.FrameCount} 帧）" +
-                          (warning != null ? $"\n{warning}" : "") +
-                          (manual.Warnings.Count > 0 ? "\n⚠ " + string.Join("\n⚠ ", manual.Warnings) : "") +
-                          $"\n({stats})";
-        ShowPreview(stitched, "手动拼接 · 已复制到剪贴板");
+        StartAutoSession(region.Value);
     }
 
     private void StartAutoSession(Int32Rect region)
@@ -326,35 +244,7 @@ public partial class MainWindow : Window
         _sessionCts = null;
     }
 
-    private void CaptureSingleAndSave(Int32Rect region)
-    {
-        StatusText.Text = "正在截图并保存…";
-        Task.Run(() =>
-        {
-            try
-            {
-                BitmapSource bitmap = ScreenCaptureService.Capture(region);
-                string path = SavePng(bitmap);
-                Dispatcher.BeginInvoke(() =>
-                {
-                    StatusText.Text = $"已保存：{path}（{bitmap.PixelWidth} × {bitmap.PixelHeight} px，{FileSizeText(new FileInfo(path).Length)}）";
-                    ShowPreview(bitmap, "已自动复制到剪贴板");
-                    Show();
-                });
-            }
-            catch (Exception ex)
-            {
-                Logger.Error("Capture failed", ex);
-                Dispatcher.BeginInvoke(() =>
-                {
-                    StatusText.Text = $"截图失败：{ex.Message}";
-                    Show();
-                });
-            }
-        });
-    }
-
-    private string SavePng(BitmapSource bitmap, string prefix = "capture")
+    private string SavePng(BitmapSource bitmap, string prefix = "longshot")
     {
         Directory.CreateDirectory(_settings.SaveDirectory);
         string path = Path.Combine(_settings.SaveDirectory, $"{prefix}_{DateTime.Now:yyyyMMdd_HHmmss_fff}.png");
@@ -372,3 +262,4 @@ public partial class MainWindow : Window
         return $"{bytes / (1024.0 * 1024.0):F1} MB";
     }
 }
+
