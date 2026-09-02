@@ -98,11 +98,11 @@ public class IncrementalStitcherTests
         // by the jump guard that compares against an initial "last delta = frame height".
         var stitcher = new IncrementalStitcher(5000);
         stitcher.Start(TestImages.Slice(LongBuffer, W, H, 0));
-        stitcher.Add(TestImages.Slice(LongBuffer, W, H, 200), null); // delta = 100
+        stitcher.Add(TestImages.Slice(LongBuffer, W, H, 30), null); // small scroll => delta 30
 
         BitmapSource? image = stitcher.Finish();
         Assert.NotNull(image);
-        Assert.Equal(H + 100, image!.PixelHeight);
+        Assert.Equal(H + 30, image!.PixelHeight);
         Assert.False(stitcher.Steps[^1].UsedFallback);
     }
 
