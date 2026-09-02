@@ -286,12 +286,11 @@ public sealed class LongCaptureSession : IDisposable
                         ref visionSuccessStreak, ref waitScale, ref degraded);
                 }
 
-                if (visionFailCount >= 12 && i >= 12)
+                if (visionFailCount >= 4 && i >= 4)
                 {
-                    // Chat history pages (QQ) shift phase when new batches load from the
-                    // top: alignment legitimately breaks for extended stretches. Skipped
-                    // frames never paste => no duplicates; rolling continues so the REAL
-                    // bottom is reached and the static/identical stop takes over.
+                    // 4 consecutive rejections = content really can't align (junk/noisy
+                    // page or capture environment broke). Transients (lazy-load jumps)
+                    // recover after 1-2 skips, so do not kill the session early.
                     return await FinishAsync(SessionStopReason.Unstable, deltas, degraded);
                 }
                 previous = frame;
