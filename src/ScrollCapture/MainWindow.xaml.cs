@@ -195,13 +195,15 @@ public partial class MainWindow : Window
         var framesDir = Path.Combine(AppPaths.DataDir, "temp", $"session_{DateTime.Now:yyyyMMdd_HHmmss}");
         int maxFrames = _settings.MaxFrames;
 
+        bool scrollDown = _settings.ScrollDirection != "Up";
         _session = new LongCaptureSession(
             region,
-            options: new ScrollOptions(),
+            options: new ScrollOptions { ScrollDown = scrollDown },
             maxFrames: maxFrames,
             framesDirectory: framesDir,
             token: _sessionCts.Token,
             fixedRegionDebug: _settings.FixedRegionDebug);
+        StatusText.Text = $"正在准备自动截长屏（{(scrollDown ? "向下" : "向上")}）…";
 
         _toast = new ProgressToast();
         _toast.StopRequested += () => _sessionCts.Cancel();
@@ -241,6 +243,7 @@ public partial class MainWindow : Window
             Show();
             return;
         }
+        TempSessionCleaner.CleanupKeepLatest(1);
 
         _ = Task.Run(() =>
         {

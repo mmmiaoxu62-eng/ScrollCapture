@@ -48,6 +48,9 @@ public sealed record ScrollOptions
     // Larger step = faster, but smaller overlap between consecutive frames.
     public int WheelStep { get; init; } = 4;
     public int DelayPerScrollMs { get; init; } = 400;
+
+    /// <summary>Scroll direction: true = down (newer content), false = up (history).</summary>
+    public bool ScrollDown { get; init; } = true;
     public int IdenticalFramesToStop { get; init; } = 2;
 
     /// <summary>Estimated movement (px) below which we declare the page essentially static.</summary>
@@ -121,7 +124,9 @@ public sealed class LongCaptureSession : IDisposable
         else
         {
             _ownController = new ScrollController(_options.WheelStep);
-            _scrollOnce = _ownController.ScrollOnce;
+            _scrollOnce = _options.ScrollDown
+                ? _ownController.ScrollOnce
+                : _ownController.ScrollUpOnce;
             _probeGetter = probeGetter ?? (() =>
             {
                 IntPtr hwnd = _ownController.TargetRootHwnd;

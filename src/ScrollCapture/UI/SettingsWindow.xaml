@@ -42,6 +42,22 @@
             <TextBox x:Name="MaxFramesBox" Grid.Column="1" Padding="5,5" />
         </Grid>
 
+        <Grid Margin="0,16,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="160" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="自动滚动方向" VerticalAlignment="Center" />
+            <ComboBox x:Name="DirectionBox" Grid.Column="1" Padding="5,5">
+                <ComboBoxItem Content="向下（新内容在下）" />
+                <ComboBoxItem Content="向上（历史在上）" />
+            </ComboBox>
+        </Grid>
+
+        <CheckBox x:Name="AutoStartBox"
+                  Content="开机自启（后台常驻托盘）"
+                  Margin="0,16,0,0" />
+
         <StackPanel Orientation="Horizontal" Margin="0,24,0,0" HorizontalAlignment="Right">
             <Button x:Name="CancelButton" Content="取消" Padding="20,6" Margin="0,0,10,0" Click="OnCancelClick" />
             <Button x:Name="SaveButton" Content="保存" Padding="30,6" Click="OnSaveClick" />

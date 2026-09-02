@@ -17,5 +17,11 @@ public class AppSettings
     /// <summary>Writes per-pair fixed-region debug artifacts (txt report + overlay PNG). Off by default.</summary>
     public bool FixedRegionDebug { get; set; }
 
+    /// <summary>Scroll direction for auto capture: "Down" (newer content below) or "Up" (history above).</summary>
+    public string ScrollDirection { get; set; } = "Down";
+
+    /// <summary>Start with Windows (launches to tray).</summary>
+    public bool AutoStart { get; set; }
+
     public static AppSettings CreateDefaults() => new();
 }

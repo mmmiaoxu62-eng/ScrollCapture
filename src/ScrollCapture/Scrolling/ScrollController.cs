@@ -73,9 +73,17 @@ public sealed class ScrollController : IDisposable
     }
 
     /// <summary>Scrolls down one step (negative wheel delta).</summary>
-    public void ScrollOnce()
+    public void ScrollOnce() => ScrollBy(-WheelTick * _wheelStep);
+
+    /// <summary>Scrolls up one step (positive wheel delta).</summary>
+    public void ScrollUpOnce() => ScrollBy(WheelTick * _wheelStep);
+
+    private void ScrollBy(int delta)
     {
-        int delta = -WheelTick * _wheelStep;
+        if (delta == 0)
+        {
+            return;
+        }
         var input = new NativeMethods.INPUT
         {
             type = NativeMethods.INPUT_MOUSE,
@@ -91,21 +99,6 @@ public sealed class ScrollController : IDisposable
         {
             throw new InvalidOperationException($"SendInput wheel failed (sent={sent}, error={Marshal.GetLastWin32Error()}).");
         }
-    }
-
-    /// <summary>Scrolls up (used to reset / for manual sessions).</summary>
-    public void ScrollUpOnce()
-    {
-        var input = new NativeMethods.INPUT
-        {
-            type = NativeMethods.INPUT_MOUSE,
-            mi = new NativeMethods.MOUSEINPUT
-            {
-                dwFlags = NativeMethods.MOUSEEVENTF_WHEEL,
-                mouseData = (uint)(WheelTick * _wheelStep),
-            }
-        };
-        NativeMethods.SendInput(1, new[] { input }, Marshal.SizeOf<NativeMethods.INPUT>());
     }
 
     /// <summary>Moves the cursor back to the scroll anchor (just before each wheel event).</summary>

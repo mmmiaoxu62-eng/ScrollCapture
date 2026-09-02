@@ -19,6 +19,8 @@ public partial class SettingsWindow : Window
         SaveDirBox.Text = settings.SaveDirectory;
         MaxHeightBox.Text = settings.MaxImageHeight.ToString();
         MaxFramesBox.Text = settings.MaxFrames.ToString();
+        DirectionBox.SelectedIndex = settings.ScrollDirection == "Up" ? 1 : 0;
+        AutoStartBox.IsChecked = settings.AutoStart;
     }
 
     private void OnHotkeyKeyDown(object sender, KeyEventArgs e)
@@ -81,7 +83,10 @@ public partial class SettingsWindow : Window
         _settings.SaveDirectory = SaveDirBox.Text.Trim();
         _settings.MaxImageHeight = maxHeight;
         _settings.MaxFrames = maxFrames;
+        _settings.ScrollDirection = DirectionBox.SelectedIndex == 1 ? "Up" : "Down";
+        _settings.AutoStart = AutoStartBox.IsChecked == true;
         SettingsService.Save(_settings);
+        AutoStartManager.Apply(_settings.AutoStart);
 
         Close(); // shown modeless — no DialogResult
     }
