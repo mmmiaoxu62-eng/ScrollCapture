@@ -178,11 +178,14 @@ public class FixedRegionDetectorTests
         BitmapSource b2 = TestImages.CreateBgr32(wb, W, H);
         RegionWeightMap? map = _detector.Update(TestImages.CreateBgr32(wa, W, H), b2, null);
 
-        // a global +10 shift defeats the same-position constancy precondition, so the
-        // original path (dy0 source) fails => detector returns null => session uses the
-        // ORIGINAL algorithm untouched. This is exactly the "whole page must not flip":
-        // nothing is painted fixed when evidence is broken.
-        Assert.Null(map, "low-confidence fixed detection must fall back");
+        // a uniform +10 shift keeps the two-test deltas intact (fixedSim/scrollSim both
+        // drop ~equally): header must still be weighted down, content must stay scroll —
+        // the whole page must NOT be flipped by the slight color change.
+        Assert.NotNull(map);
+        Assert.True(map!.RowWeight.Skip(4).Take(90).Average() < 0.7,
+            "header should still read as fixed");
+        Assert.True(map.RowWeight.Skip(130).Take(70).Average() > 0.7,
+            $"content must stay scroll-weighted, got {map.RowWeight.Skip(130).Take(70).Average():F2}");
     }
 }
 
