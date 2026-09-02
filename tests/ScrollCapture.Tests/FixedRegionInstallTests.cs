@@ -59,6 +59,56 @@ public class FixedRegionInstallTests
     }
 
     [Fact]
+    public void FooterPair_StitchesNormally_FixedBandNotRepeated()
+    {
+        BitmapSource a = TestImages.Slice(LongBuffer, W, H, 0);
+        BitmapSource b = TestImages.Slice(LongBuffer, W, H, ScrollPx);
+        const int footerH = 60;
+        byte[] wa = FrameSimilarity.ToBgr32Buffer(a);
+        byte[] wb = FrameSimilarity.ToBgr32Buffer(b);
+        for (int y = H - footerH; y < H; y++)
+        {
+            int row = y * W * 4;
+            for (int x = 0; x < W * 4; x++)
+            {
+                byte v = (byte)((x / 4 * 5 + y * 3 + 233) & 0xff);
+                wa[row + x] = v;
+                wb[row + x] = v;
+            }
+        }
+        BitmapSource fa = TestImages.CreateBgr32(wa, W, H);
+        BitmapSource fb = TestImages.CreateBgr32(wb, W, H);
+
+        var stitcher = new IncrementalStitcher(5000);
+        stitcher.Start(fa);
+        stitcher.Add(fb, priorScrollDeltaPx: ScrollPx);
+
+        var step = stitcher.Steps[^1];
+        Assert.False(step.UsedFallback, "footer pair must stitch via the weighted path");
+        Assert.False(step.Skipped);
+
+        BitmapSource image = stitcher.Finish()!;
+        Assert.Equal(H + ScrollPx, image.PixelHeight);
+
+        // footer pixel signature exists once only (in the final frame's own bottom band)
+        byte[] outBytes = FrameSimilarity.ToBgr32Buffer(image);
+        int sigY = H + ScrollPx - 12;
+        int idx = sigY * W * 4 + 10 * 4;
+        byte sig = (byte)((10 / 4 * 5 + (H - 12) * 3 + 233) & 0xff);
+        Assert.Equal(sig, outBytes[idx]); // footer present at its own final position
+        int earlier = 0;
+        for (int y = 30; y < H - footerH - 40 && y < image.PixelHeight; y += 9)
+        {
+            int i2 = y * W * 4 + 40 * 4;
+            if (outBytes[i2] == sig && outBytes[i2 + 1] == sig && outBytes[i2 + 2] == sig)
+            {
+                earlier++;
+            }
+        }
+        Assert.True(earlier <= 1, "footer band repeated in the content area");
+    }
+
+    [Fact]
     public void HeaderPair_ExactOverlap_AndHeaderAppearsOnce()
     {
         var (a, b) = HeaderPair();
