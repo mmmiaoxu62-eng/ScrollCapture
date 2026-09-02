@@ -3,10 +3,11 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="ScrollCapture 截长屏"
         Width="460"
-        Height="280"
-        ResizeMode="CanMinimize"
+        Height="400"
+        ResizeMode="CanResizeWithGrip"
         WindowStartupLocation="CenterScreen"
         ShowActivated="False">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
     <StackPanel Margin="20">
         <TextBlock Text="ScrollCapture · 截长屏"
                    FontSize="16"
@@ -40,9 +41,10 @@
                 Click="OnDiagnosticsClick" />
 
         <TextBlock x:Name="StatusText"
-                   Margin="0,12,0,0"
+                   Margin="0,12,0,12"
                    TextWrapping="Wrap"
                    Foreground="#FF808080"
                    FontSize="12" />
     </StackPanel>
+    </ScrollViewer>
 </Window>
