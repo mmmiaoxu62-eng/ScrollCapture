@@ -151,6 +151,20 @@ public sealed class IncrementalStitcher
             }
         }
 
+        if (!accepted && overlap.Note is string n && n.Contains("refine best")
+            && TryExtractBest(n, out double bestRef) && bestRef < 9.0
+            && priorDelta is double pd2 && pd2 > 4)
+        {
+            // soft-accept: the peak exists but sits just above the strict threshold,
+            // and the paste prior matches it closely. Confidence is visibly degraded
+            // and a warning is recorded — but the session keeps moving instead of
+            // accumulating rejections at well-known page modes.
+            delta = (int)Math.Round(pd2);
+            accepted = true;
+            overlap = new OverlapResult(true, Math.Max(1, _height - delta), 0.55, "soft-accept near-miss");
+            ((List<string>)Warnings).Add($"frame {Steps.Count}: soft-accept (refine {bestRef:F1}>5.5, prior {delta}px)");
+        }
+
         if (accepted)
         {
             ((List<StitchStepReport>)Steps).Add(new StitchStepReport(Steps.Count, overlap.OverlapHeight, overlap.Confidence, false, false));
@@ -204,6 +218,17 @@ public sealed class IncrementalStitcher
     /// KEPT only for the first frame's height — everything below is blanked, because the
     /// fixed UI (sidebar) would otherwise repeat once per frame. Result matches the
     /// desired "固定区出现一次，其余留白" layout.</summary>
+    private static bool TryExtractBest(string note, out double value)
+    {
+        value = 0;
+        int idx = note.IndexOf("refine best", StringComparison.Ordinal);
+        if (idx < 0) return false;
+        var span = note.AsSpan(idx + "refine best".Length).TrimStart();
+        int len = 0;
+        while (len < span.Length && (char.IsDigit(span[len]) || span[len] == '.')) len++;
+        return len > 0 && double.TryParse(span[..len], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value);
+    }
+
     private void WritePairDebug(BitmapSource current, RegionWeightMap? weightMap, OverlapResult overlap)
     {
         try
