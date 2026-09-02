@@ -94,7 +94,7 @@ public class FixedRegionInstallTests
         byte[] outBytes = FrameSimilarity.ToBgr32Buffer(image);
         int sigY = H + ScrollPx - 12;
         int idx = sigY * W * 4 + 10 * 4;
-        byte sig = (byte)((10 / 4 * 5 + (H - 12) * 3 + 233) & 0xff);
+        byte sig = (byte)((10 * 5 + (H - 12) * 3 + 233) & 0xff);
         Assert.Equal(sig, outBytes[idx]); // footer present at its own final position
         int earlier = 0;
         for (int y = 30; y < H - footerH - 40 && y < image.PixelHeight; y += 9)
