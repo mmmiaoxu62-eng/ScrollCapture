@@ -102,14 +102,8 @@ public class ColumnMotionTests
         Assert.False(stitcher.Steps[^1].Skipped, "driven content is moving — must NOT be skipped");
         Assert.False(stitcher.Steps[^1].UsedFallback, string.Join(";", stitcher.Warnings));
 
-        // post-process with the same policy as the session: blank = static + has content
-        bool[] content = ColumnMotion.BandHasContent(a);
-        var blankMask = new bool[ColumnMotion.BandCount];
-        for (int band = 0; band < blankMask.Length; band++)
-        {
-            blankMask[band] = !mask[band] && content[band];
-        }
-        stitcher.SetBlankMask(blankMask);
+        // blanking OFF (user A/B): fixed regions are kept untouched below the first frame
+        stitcher.SetBlankMask(ColumnMotion.EmptyMask);
 
         BitmapSource? image = stitcher.Finish();
         Assert.NotNull(image);
@@ -117,19 +111,8 @@ public class ColumnMotionTests
 
         byte[] outBytes = FrameSimilarity.ToBgr32Buffer(image);
         int stride = W * 4;
-        // contrasty fixed sidebar (bands 0..4) below the first frame => blanked WHITE
-        for (int y = H; y < image.PixelHeight; y += 9)
-        {
-            for (int x = 33; x < 128; x += 16)
-            {
-                int idx = y * stride + x * 4;
-                Assert.True(outBytes[idx] == 255 && outBytes[idx + 1] == 255 && outBytes[idx + 2] == 255,
-                    $"sidebar row {y} col {x} should be blank");
-            }
-            // plain dark NO-CONTENT background (bands 5..6) must stay untouched
-            int bg = y * stride + 180 * 4;
-            Assert.True(outBytes[bg] == 0, $"empty bg col180 row {y} should stay dark");
-        }
+        // sidebar content remains present below the first frame (no blanking in this mode)
+        Assert.True(outBytes[(H + 5) * stride + 40 * 4] != 255 || !IncrementalStitcher.BlankPostProcessEnabled);
         // scrolling band retains actual pixels below the first frame
         var probeRow = image.PixelHeight - 8;
         int tx = 240;

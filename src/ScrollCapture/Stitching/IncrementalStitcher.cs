@@ -17,11 +17,13 @@ public sealed class IncrementalStitcher
 
     // True matches typically score 0.98+; self-similar content (chat lists) produces
     // junk peaks at 0.4-0.6 — anything below is NOT a match (skip, don't paste).
-    // junk peaks on self-similar content score 0.4-0.6; narrow-column (masked) scoring
-    // can legitimately dip to 0.7 — the safe threshold sits between.
     internal const double MinAcceptConfidence = 0.70;
     internal const double MaxDeltaJumpRatio = 0.40; // |delta - last| > 40% of frame height = reject
     internal const double MotionStaticThreshold = 0.04; // <4% changed rows = window did not move
+
+    // User-requested A/B: DISABLED — fixed-region blanking caused over-deletion;
+    // keep fixed UI as-is while the mixed-region policy is being reviewed.
+    internal const bool BlankPostProcessEnabled = false;
 
     private readonly int _maxImageHeight;
     private readonly OverlapDetector _detector = new();
@@ -189,7 +191,7 @@ public sealed class IncrementalStitcher
             offset += rowCount;
         }
 
-        if (_blankMask != null && _blankMask.Any(m => !m) && _totalHeight > _height)
+        if (BlankPostProcessEnabled && _blankMask != null && _blankMask.Any(m => !m) && _totalHeight > _height)
         {
             BlankStaticColumns(canvas);
         }
