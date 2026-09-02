@@ -29,7 +29,17 @@ public partial class PreviewWindow : Window
 
         PreviewImage.Source = bitmap;
         InfoText.Text = $"{bitmap.PixelWidth} × {bitmap.PixelHeight} px" + (saveInfo != null ? $" · {saveInfo}" : "");
-        Loaded += (_, _) => FitToWindow();
+        Loaded += (_, _) =>
+        {
+            if (!double.IsNaN(_rememberedZoom) && _rememberedZoom is > 0.05 and < 20)
+            {
+                ApplyZoom(_rememberedZoom);
+            }
+            else
+            {
+                FitToWindow();
+            }
+        };
     }
 
     private void FitToWindow()
@@ -49,9 +59,11 @@ public partial class PreviewWindow : Window
         if (scale <= 0.05) return;
         PreviewImage.LayoutTransform = new ScaleTransform(scale, scale);
         _zoom = scale;
+        _rememberedZoom = scale;
     }
 
     private double _zoom = 1.0;
+    private static double _rememberedZoom = double.NaN;
 
     private BitmapSource? _sourceAfterCrop;
     private bool _cropActive;
@@ -333,6 +345,45 @@ public partial class PreviewWindow : Window
         {
             Logger.Error("Save failed", ex);
             SetStatus($"保存失败：{ex.Message}");
+        }
+    }
+
+    private void OnExportPdfClick(object sender, RoutedEventArgs e)
+    {
+        if (PreviewImage.Source is not BitmapSource bmp)
+        {
+            return;
+        }
+        var dialog = new SaveFileDialog
+        {
+            Title = "导出 PDF",
+            Filter = "PDF 文档|*.pdf",
+            DefaultExt = "pdf",
+            FileName = $"scrollcapture_{DateTime.Now:yyyyMMdd_HHmmss}.pdf",
+            InitialDirectory = _settings.SaveDirectory,
+            AddExtension = true,
+        };
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+        try
+        {
+            var encoder = new JpegBitmapEncoder { QualityLevel = 85 };
+            encoder.Frames.Add(BitmapFrame.Create(bmp));
+            byte[] jpeg;
+            using (var ms = new MemoryStream())
+            {
+                encoder.Save(ms);
+                jpeg = ms.ToArray();
+            }
+            PdfBuilder.Build(dialog.FileName, jpeg, bmp.PixelWidth, bmp.PixelHeight);
+            SetStatus($"已导出 PDF：{dialog.FileName}");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("PDF export failed", ex);
+            SetStatus($"导出失败：{ex.Message}");
         }
     }
 
