@@ -17,7 +17,9 @@ public sealed class IncrementalStitcher
 
     // True matches typically score 0.98+; self-similar content (chat lists) produces
     // junk peaks at 0.4-0.6 — anything below is NOT a match (skip, don't paste).
-    internal const double MinAcceptConfidence = 0.75;
+    // junk peaks on self-similar content score 0.4-0.6; narrow-column (masked) scoring
+    // can legitimately dip to 0.7 — the safe threshold sits between.
+    internal const double MinAcceptConfidence = 0.70;
     internal const double MaxDeltaJumpRatio = 0.40; // |delta - last| > 40% of frame height = reject
     internal const double MotionStaticThreshold = 0.04; // <4% changed rows = window did not move
 
@@ -29,6 +31,7 @@ public sealed class IncrementalStitcher
     private long _totalHeight;
     private int _lastDelta;
     private BitmapSource? _lastFrame;
+    private bool[]? _bandMask;
     private readonly List<(byte[] Buffer, int RowOffset, int RowCount)> _segments = new();
 
     public IReadOnlyList<StitchStepReport> Steps { get; } = new List<StitchStepReport>();
@@ -56,8 +59,12 @@ public sealed class IncrementalStitcher
         ((List<StitchStepReport>)Steps).Add(new StitchStepReport(0, 0, 1.0, false, false));
     }
 
-    public void Add(BitmapSource current, double? priorScrollDeltaPx)
+    public void Add(BitmapSource current, double? priorScrollDeltaPx, bool[]? drivingBandMask = null)
     {
+        if (drivingBandMask != null)
+        {
+            _bandMask = drivingBandMask;
+        }
         if (_lastFrame == null || _width <= 0)
         {
             return;
@@ -77,7 +84,10 @@ public sealed class IncrementalStitcher
 
         // Motion gate: if almost NO rows changed, the window did not move — matching next
         // would be picking a phantom peak out of static content (repeated-block bug).
-        if (FrameSimilarity.ComputeMotionFraction(_lastFrame, current) < MotionStaticThreshold)
+        // With a driving-band mask the check runs on the moving columns ONLY, so a
+        // mixed region (static sidebar + scrolling column) keeps driving the loop.
+        double motion = ColumnMotion.ComputeDrivenMotionFraction(_lastFrame, current, _bandMask);
+        if (motion < MotionStaticThreshold)
         {
             ((List<StitchStepReport>)Steps).Add(new StitchStepReport(Steps.Count, _height, 1.0, false, true));
             _lastDelta = 0;
@@ -91,7 +101,7 @@ public sealed class IncrementalStitcher
             ? pd
             : _lastDelta > 0 && _lastDelta < _height - 10 ? _lastDelta : null;
         double? priorOverlap = priorDelta is double p && p > 0 ? _height - p : null;
-        OverlapResult overlap = _detector.Detect(_lastFrame, current, priorOverlap);
+        OverlapResult overlap = _detector.Detect(_lastFrame, current, priorOverlap, _bandMask);
 
         int delta = _lastDelta;
         bool accepted = overlap.Success

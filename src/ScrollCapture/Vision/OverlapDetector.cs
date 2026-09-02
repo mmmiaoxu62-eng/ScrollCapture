@@ -27,7 +27,7 @@ public sealed class OverlapDetector
 {
     private const int DownscaleFactor = 4;
     private const double MinOverlapRatio = 0.12;
-    private const double MaxOverlapRatio = 0.90;
+    private const double MaxOverlapRatio = 0.93;
     // Coarse only locates a candidate; the refinement + band check make the final call,
     // so a lenient threshold avoids false rejects on non-integer downscale offsets.
     private const double CoarseScoreThreshold = 30.0;
@@ -47,7 +47,8 @@ public sealed class OverlapDetector
     /// detection first searches only a narrow window around it; only on failure does it
     /// fall back to a global scan.
     /// </param>
-    public OverlapResult Detect(BitmapSource previous, BitmapSource next, double? priorOverlapPx = null)
+    public OverlapResult Detect(BitmapSource previous, BitmapSource next, double? priorOverlapPx = null,
+        bool[]? drivingBandMask = null)
     {
         if (previous.PixelWidth != next.PixelWidth || previous.PixelHeight != next.PixelHeight)
         {
@@ -70,30 +71,36 @@ public sealed class OverlapDetector
         (byte[] smallB, _, _) = Downscale(grayB, width, height);
         bool[] staticMask = ComputeStaticMask(grayA, grayB, width, height);
         bool[] staticMaskSmall = ComputeStaticMask(smallA, smallB, sw, sh);
+        bool[] colMask = ColumnMotion.ToColumnMask(drivingBandMask, width);
+        bool[] colMaskSmall = ColumnMotion.ToColumnMask(drivingBandMask, sw);
 
         if (priorOverlapPx is double prior && prior >= MinOverlapRatio * height && prior <= MaxOverlapRatio * height)
         {
             OverlapResult narrowed = Scan(smallA, smallB, grayA, grayB, sw, sh, width, height,
-                staticMask, staticMaskSmall, priorMinK: (int)((prior - 12) / DownscaleFactor),
+                staticMask, staticMaskSmall, colMask, colMaskSmall,
+                priorMinK: (int)((prior - 12) / DownscaleFactor),
                 priorMaxK: (int)((prior + 12) / DownscaleFactor));
             if (narrowed.Success)
             {
                 return narrowed;
             }
-            // prior was wrong or too narrow 鈥?fall through to global scan
-            OverlapResult global = Scan(smallA, smallB, grayA, grayB, sw, sh, width, height, staticMask, staticMaskSmall, null, null);
+            // prior was wrong or too narrow - fall through to global scan
+            OverlapResult global = Scan(smallA, smallB, grayA, grayB, sw, sh, width, height,
+                staticMask, staticMaskSmall, colMask, colMaskSmall, null, null);
             return global.Success
                 ? global with { Note = (global.Note ?? "") + " | prior mismatch, global hit" }
                 : global;
         }
 
-        return Scan(smallA, smallB, grayA, grayB, sw, sh, width, height, staticMask, staticMaskSmall, null, null);
+        return Scan(smallA, smallB, grayA, grayB, sw, sh, width, height,
+            staticMask, staticMaskSmall, colMask, colMaskSmall, null, null);
     }
 
     private static OverlapResult Scan(
         byte[] smallA, byte[] smallB, byte[] grayA, byte[] grayB,
         int sw, int sh, int width, int height,
-        bool[] staticMask, bool[] staticMaskSmall, int? priorMinK, int? priorMaxK)
+        bool[] staticMask, bool[] staticMaskSmall, bool[] colMask, bool[] colMaskSmall,
+        int? priorMinK, int? priorMaxK)
     {
         int minK = Math.Max(1, (int)(sh * MinOverlapRatio));
         int maxK = Math.Min(sh - 2, (int)(sh * MaxOverlapRatio));
@@ -117,7 +124,7 @@ public sealed class OverlapDetector
         // descending: on ties prefer the LARGER overlap (more conservative delta)
         for (int k = maxK; k >= minK; k--)
         {
-            double score = RobustRowScore(smallA, smallB, sw, sh, sh, sh - k, 0, k, colStep: 2, TrimWorstRowsPercent, staticMaskSmall);
+            double score = RobustRowScore(smallA, smallB, sw, sh, sh, sh - k, 0, k, colStep: 2, TrimWorstRowsPercent, staticMaskSmall, colMaskSmall);
             if (score < best)
             {
                 second = best;
@@ -152,7 +159,7 @@ public sealed class OverlapDetector
         int bestRefK = rMin;
         for (int k = rMin; k <= rMax; k++)
         {
-            double score = RobustRowScore(grayA, grayB, width, height, height, height - k, 0, k, colStep: 3, TrimWorstRowsPercent, staticMask);
+            double score = RobustRowScore(grayA, grayB, width, height, height, height - k, 0, k, colStep: 3, TrimWorstRowsPercent, staticMask, colMask);
             if (score < bestRef)
             {
                 bestRef = score;
@@ -168,7 +175,7 @@ public sealed class OverlapDetector
         int bandOffset = Math.Max(1, bestRefK / 3);
         int bandRows = Math.Min(bestRefK / 2, 120);
         double bandDiff = RobustRowScore(grayA, grayB, width, height, height,
-            height - bestRefK + bandOffset, bandOffset, bandRows, colStep: 4, trimPercent: 0, staticMask);
+            height - bestRefK + bandOffset, bandOffset, bandRows, colStep: 4, trimPercent: 0, staticMask, colMask);
         if (bandDiff > bestRef * 2.5 + 4)
         {
             return OverlapResult.Fail($"band mismatch {bandDiff:F2} vs {bestRef:F2}");
@@ -273,7 +280,7 @@ public sealed class OverlapDetector
         byte[] a, byte[] b, int width,
         int aHeight, int bHeight,
         int aStart, int bStart, int count,
-        int colStep, int trimPercent, bool[]? staticMaskB)
+        int colStep, int trimPercent, bool[]? staticMaskB, bool[]? colMask = null)
     {
         if (count <= 0 || aStart < 0 || bStart < 0)
         {
@@ -300,10 +307,18 @@ public sealed class OverlapDetector
             int cols = 0;
             for (int x = 0; x < width; x += colStep)
             {
+                if (colMask != null && !colMask[x])
+                {
+                    continue; // non-driving band — diluted scoring
+                }
                 sum += Math.Abs(a[aBase + x] - b[bBase + x]);
                 cols++;
             }
-            rowDiffs[used++] = sum / (double)Math.Max(1, cols);
+            if (cols == 0)
+            {
+                continue;
+            }
+            rowDiffs[used++] = sum / (double)cols;
         }
 
         // If everything was masked (fully static content) -> indistinguishable, fail.
@@ -330,4 +345,6 @@ public sealed class OverlapDetector
         return total / effectiveRows;
     }
 }
+
+
 

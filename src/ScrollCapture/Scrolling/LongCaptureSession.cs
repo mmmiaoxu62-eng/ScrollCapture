@@ -182,7 +182,12 @@ public sealed class LongCaptureSession : IDisposable
                 deltas.Add(delta);
                 _deltaLog.Add(delta);
 
-                if (delta != null)
+                // Mixed windows (static sidebar + scrolling column) may expose a window-level
+                // probe that reports zero although content IS moving (probed the wrong
+                // container). Probe-based stop signals are only trusted when the content
+                // itself is also static (last stitch step skipped).
+                bool contentStaticLast = previous != null && _stitcher.Steps.Count > 0 && _stitcher.Steps[^1].Skipped;
+                if (delta != null && (contentStaticLast || i <= 1))
                 {
                     if (delta < _options.StaticDeltaPx)
                     {
@@ -220,6 +225,18 @@ public sealed class LongCaptureSession : IDisposable
                 // incremental stitch (also feeds the vision ladder below).
                 // "Skipped" (identical OR motion-static) advances the bottom-stop counter
                 // — near-static content stops fast instead of phantom-pasting.
+                if (previous != null && _driveMask == null)
+                {
+                    // classify scroll-driving column bands from the first real pair;
+                    // all-static frames yield an empty mask (old whole-frame behavior)
+                    bool[] candidate = ColumnMotion.ClassifyDrivingBands(previous, frame);
+                    if (candidate.Any(m => m))
+                    {
+                        _driveMask = candidate;
+                        Logger.Info($"drive bands: {string.Concat(candidate.Select(m => m ? '1' : '0'))}");
+                    }
+                }
+
                 bool identicalPair = previous != null && FrameSimilarity.IsNearlyIdentical(previous, frame);
                 double? priorDelta = deltas.Count > 0 ? deltas[^1] : null;
                 if (previous == null)
@@ -229,7 +246,7 @@ public sealed class LongCaptureSession : IDisposable
                 }
                 else
                 {
-                    _stitcher.Add(frame, priorDelta);
+                    _stitcher.Add(frame, priorDelta, _driveMask);
                     bool skipped = _stitcher.Steps.Count > 0 && _stitcher.Steps[^1].Skipped;
                     if (identicalPair || skipped)
                     {
@@ -383,6 +400,7 @@ public sealed class LongCaptureSession : IDisposable
 
     private readonly List<double?> _deltaLog = new();
     private readonly int _baseWheelStep;
+    private bool[]? _driveMask;
 
     /// <summary>
     /// Scroll animation detector: poll tiny a/b comparisons until the picture stops
