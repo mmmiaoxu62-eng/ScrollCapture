@@ -127,7 +127,8 @@ public class ColumnMotionTests
         var queue = new Queue<BitmapSource>();
         for (int i = 0; i < 5; i++)
         {
-            queue.Enqueue(TestImages.CreateBgr32(FrameA(i * 30), W, H));
+            // full-width random-row slices: strong, deterministic alignment
+            queue.Enqueue(TestImages.Slice(LongBuffer, W, H, i * 30));
         }
         var session = new LongCaptureSession(
             new Int32Rect(0, 0, W, H),
@@ -146,3 +147,5 @@ public class ColumnMotionTests
         Assert.Equal(5, result.FrameCount);
     }
 }
+
+
