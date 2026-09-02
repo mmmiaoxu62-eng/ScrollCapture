@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows.Media.Imaging;
 using ScrollCapture.Stitching;
+using ScrollCapture.Vision;
 
 namespace ScrollCapture.Tests;
 
