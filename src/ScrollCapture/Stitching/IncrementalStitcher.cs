@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -17,12 +17,12 @@ public sealed class IncrementalStitcher
     private const long MaxMemoryBytes = 700L * 1024 * 1024;
 
     // True matches typically score 0.98+; self-similar content (chat lists) produces
-    // junk peaks at 0.4-0.6 鈥?anything below is NOT a match (skip, don't paste).
+    // junk peaks at 0.4-0.6 — anything below is NOT a match (skip, don't paste).
     internal const double MinAcceptConfidence = 0.70;
     internal const double MaxDeltaJumpRatio = 0.40; // |delta - last| > 40% of frame height = reject
     internal const double MotionStaticThreshold = 0.04; // <4% changed rows = window did not move
 
-    // User-requested A/B: DISABLED 鈥?fixed-region blanking caused over-deletion;
+    // User-requested A/B: DISABLED — fixed-region blanking caused over-deletion;
     // keep fixed UI as-is while the mixed-region policy is being reviewed.
     internal const bool BlankPostProcessEnabled = false;
 
@@ -42,7 +42,8 @@ public sealed class IncrementalStitcher
     private readonly List<(byte[] Buffer, int RowOffset, int RowCount)> _segments = new();
 
     /// <summary>
-    /// Sets the columns to blank below the first frame (fixed UI bands only 鈥?    /// classified by driving-band motion AND having actual content/contrast).
+    /// Sets the columns to blank below the first frame (fixed UI bands only —
+    /// classified by driving-band motion AND having actual content/contrast).
     /// </summary>
     public void SetBlankMask(bool[]? blankMask) => _blankMask = blankMask;
 
@@ -66,7 +67,7 @@ public sealed class IncrementalStitcher
         _width = firstFrame.PixelWidth;
         _height = firstFrame.PixelHeight;
         _totalHeight = _height;
-        _lastDelta = 0; // no reference step yet 鈥?jump guard & self-prior skip the first pair
+        _lastDelta = 0; // no reference step yet — jump guard & self-prior skip the first pair
         _lastFrame = firstFrame;
         _segments.Add((FrameSimilarity.ToBgr32Buffer(firstFrame), 0, _height));
         ((List<StitchStepReport>)Steps).Add(new StitchStepReport(0, 0, 1.0, false, false));
@@ -95,7 +96,7 @@ public sealed class IncrementalStitcher
             return; // no new content
         }
 
-        // Motion gate: if almost NO rows changed, the window did not move 鈥?matching next
+        // Motion gate: if almost NO rows changed, the window did not move — matching next
         // would be picking a phantom peak out of static content (repeated-block bug).
         // With a driving-band mask the check runs on the moving columns ONLY, so a
         // mixed region (static sidebar + scrolling column) keeps driving the loop.
@@ -104,12 +105,12 @@ public sealed class IncrementalStitcher
         {
             ((List<StitchStepReport>)Steps).Add(new StitchStepReport(Steps.Count, _height, 1.0, false, true));
             _lastDelta = 0;
-            return; // static after all 鈥?count toward the bottom-stop
+            return; // static after all — count toward the bottom-stop
         }
 
         // Self-prior: when no probe gave an estimate, assume the SAME delta as the last
         // good step (chat lists scroll uniformly). Junk matches at far offsets are then
-        // unreachable 鈥?only genuine peaks inside the narrow window survive.
+        // unreachable — only genuine peaks inside the narrow window survive.
         double? priorDelta = priorScrollDeltaPx is double pd && pd > 0
             ? pd
             : _lastDelta > 0 && _lastDelta < _height - 10 ? _lastDelta : null;
@@ -200,9 +201,9 @@ public sealed class IncrementalStitcher
 
     /// <summary>Renders the accumulated long image; safely callable once after the loop.
     /// Post-processing: when a driving-band mask exists, non-driving (fixed) columns are
-    /// KEPT only for the first frame's height 鈥?everything below is blanked, because the
+    /// KEPT only for the first frame's height — everything below is blanked, because the
     /// fixed UI (sidebar) would otherwise repeat once per frame. Result matches the
-    /// desired "鍥哄畾鍖哄嚭鐜颁竴娆★紝鍏朵綑鐣欑櫧" layout.</summary>
+    /// desired "固定区出现一次，其余留白" layout.</summary>
     private void WritePairDebug(BitmapSource current, RegionWeightMap? weightMap, OverlapResult overlap)
     {
         try
@@ -333,4 +334,3 @@ public sealed class IncrementalStitcher
         canvas.WritePixels(new Int32Rect(x, fromY, width, bottom - fromY), white, width * 4, 0);
     }
 }
-
