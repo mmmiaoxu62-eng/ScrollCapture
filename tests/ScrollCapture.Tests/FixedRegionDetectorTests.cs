@@ -172,8 +172,8 @@ public class FixedRegionDetectorTests
         byte[] wb = FrameSimilarity.ToBgr32Buffer(b);
         for (int i = 0; i < wb.Length; i += 4)
         {
-            wb[i] = (byte)Math.Clamp(wb[i] + 10, 0, 255);
-            wb[i + 1] = (byte)Math.Clamp(wb[i + 1] + 10, 0, 255);
+            wb[i] = (byte)Math.Clamp(wb[i] + 4, 0, 255);
+            wb[i + 1] = (byte)Math.Clamp(wb[i + 1] + 4, 0, 255);
         }
         BitmapSource b2 = TestImages.CreateBgr32(wb, W, H);
         RegionWeightMap? map = _detector.Update(TestImages.CreateBgr32(wa, W, H), b2, null);
