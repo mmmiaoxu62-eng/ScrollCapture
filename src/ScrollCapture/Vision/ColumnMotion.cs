@@ -67,6 +67,53 @@ public static class ColumnMotion
         return mask;
     }
 
+    /// <summary>
+    /// True when a band carries actual UI content (contrast), as opposed to plain
+    /// empty background. Only contrasty static bands should be blanked post-stitch —
+    /// background strips stay untouched (they repeat naturally & harmlessly).
+    /// </summary>
+    public static bool[] BandHasContent(byte[] a, int width, int height)
+    {
+        int bandWidth = Math.Max(1, width / BandCount);
+        int stride = width * 4;
+        var result = new bool[BandCount];
+        for (int b = 0; b < BandCount; b++)
+        {
+            int x0 = b * bandWidth;
+            int x1 = Math.Min(width, x0 + bandWidth);
+            long sum = 0;
+            long sq = 0;
+            long n = 0;
+            for (int y = 0; y < height; y += 4)
+            {
+                int row = y * stride;
+                for (int x = x0; x < x1; x += 4)
+                {
+                    // luminance of the first channel triple as a proxy sample
+                    int v = a[row + x * 4];
+                    sum += v;
+                    sq += (long)v * v;
+                    n++;
+                }
+            }
+            if (n == 0)
+            {
+                result[b] = false;
+                continue;
+            }
+            double mean = sum / (double)n;
+            double std = Math.Sqrt(Math.Max(0, sq / (double)n - mean * mean));
+            result[b] = std >= 6.0;
+        }
+        return result;
+    }
+
+    public static bool[] BandHasContent(BitmapSource a)
+    {
+        byte[] ba = FrameSimilarity.ToBgr32Buffer(a);
+        return BandHasContent(ba, a.PixelWidth, a.PixelHeight);
+    }
+
     public static double ComputeDrivenMotionFraction(byte[] a, byte[] b, int width, int height, bool[]? bandMask)
     {
         if (bandMask == null)

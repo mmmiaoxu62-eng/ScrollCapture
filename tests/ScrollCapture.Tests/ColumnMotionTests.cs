@@ -24,11 +24,12 @@ public class ColumnMotionTests
 
     private static void SideOverlay(byte[] buf)
     {
-        // bands 0..6 (x < 224): high-contrast FIXED pattern — identical across frames
+        // bands 0..4 (x < 160): high-contrast FIXED UI — identical across frames
+        // bands 5..6 (x 160..224): plain DARK empty background (constant, no content)
         for (int y = 0; y < H; y++)
         {
             int row = y * W * 4;
-            for (int x = 0; x < 224; x++)
+            for (int x = 0; x < 160; x++)
             {
                 byte v = (byte)((x * 3 + y * 5 + 60) & 0xff);
                 int idx = row + x * 4;
@@ -101,21 +102,33 @@ public class ColumnMotionTests
         Assert.False(stitcher.Steps[^1].Skipped, "driven content is moving — must NOT be skipped");
         Assert.False(stitcher.Steps[^1].UsedFallback, string.Join(";", stitcher.Warnings));
 
+        // post-process with the same policy as the session: blank = static + has content
+        bool[] content = ColumnMotion.BandHasContent(a);
+        var blankMask = new bool[ColumnMotion.BandCount];
+        for (int band = 0; band < blankMask.Length; band++)
+        {
+            blankMask[band] = !mask[band] && content[band];
+        }
+        stitcher.SetBlankMask(blankMask);
+
         BitmapSource? image = stitcher.Finish();
         Assert.NotNull(image);
         Assert.Equal(H + 30, image!.PixelHeight);
 
         byte[] outBytes = FrameSimilarity.ToBgr32Buffer(image);
         int stride = W * 4;
-        // fixed sidebar below the first frame must be WHITE (blank), scroll band content kept
+        // contrasty fixed sidebar (bands 0..4) below the first frame => blanked WHITE
         for (int y = H; y < image.PixelHeight; y += 9)
         {
-            for (int x = 33; x < 224; x += 16)
+            for (int x = 33; x < 128; x += 16)
             {
                 int idx = y * stride + x * 4;
                 Assert.True(outBytes[idx] == 255 && outBytes[idx + 1] == 255 && outBytes[idx + 2] == 255,
                     $"sidebar row {y} col {x} should be blank");
             }
+            // plain dark NO-CONTENT background (bands 5..6) must stay untouched
+            int bg = y * stride + 180 * 4;
+            Assert.True(outBytes[bg] == 0, $"empty bg col180 row {y} should stay dark");
         }
         // scrolling band retains actual pixels below the first frame
         var probeRow = image.PixelHeight - 8;

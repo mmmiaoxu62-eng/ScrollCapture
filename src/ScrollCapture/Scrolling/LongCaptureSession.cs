@@ -233,7 +233,14 @@ public sealed class LongCaptureSession : IDisposable
                     if (candidate.Any(m => m))
                     {
                         _driveMask = candidate;
-                        Logger.Info($"drive bands: {string.Concat(candidate.Select(m => m ? '1' : '0'))}");
+                        bool[] contentBands = ColumnMotion.BandHasContent(frame);
+                        var blankMask = new bool[ColumnMotion.BandCount];
+                        for (int b = 0; b < blankMask.Length; b++)
+                        {
+                            blankMask[b] = !candidate[b] && contentBands[b];
+                        }
+                        _stitcher.SetBlankMask(blankMask);
+                        Logger.Info($"drive bands: {string.Concat(candidate.Select(m => m ? '1' : '0'))} blank bands: {string.Concat(blankMask.Select(m => m ? '1' : '0'))}");
                     }
                 }
 

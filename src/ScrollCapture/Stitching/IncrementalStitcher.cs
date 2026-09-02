@@ -32,7 +32,14 @@ public sealed class IncrementalStitcher
     private int _lastDelta;
     private BitmapSource? _lastFrame;
     private bool[]? _bandMask;
+    private bool[]? _blankMask;
     private readonly List<(byte[] Buffer, int RowOffset, int RowCount)> _segments = new();
+
+    /// <summary>
+    /// Sets the columns to blank below the first frame (fixed UI bands only —
+    /// classified by driving-band motion AND having actual content/contrast).
+    /// </summary>
+    public void SetBlankMask(bool[]? blankMask) => _blankMask = blankMask;
 
     public IReadOnlyList<StitchStepReport> Steps { get; } = new List<StitchStepReport>();
     public IReadOnlyList<string> Warnings { get; } = new List<string>();
@@ -182,7 +189,7 @@ public sealed class IncrementalStitcher
             offset += rowCount;
         }
 
-        if (_bandMask != null && _bandMask.Any(m => !m) && _totalHeight > _height)
+        if (_blankMask != null && _blankMask.Any(m => !m) && _totalHeight > _height)
         {
             BlankStaticColumns(canvas);
         }
@@ -193,7 +200,7 @@ public sealed class IncrementalStitcher
 
     private void BlankStaticColumns(WriteableBitmap canvas)
     {
-        bool[] colMask = ColumnMotion.ToColumnMask(_bandMask, _width);
+        bool[] colMask = ColumnMotion.ToColumnMask(_blankMask, _width);
         int blankFromY = _height; // first frame keeps the fixed UI at the top
         int blankBottom = (int)_totalHeight;
 
