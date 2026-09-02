@@ -75,11 +75,15 @@ public sealed class OverlapDetector
         bool[] colMaskSmall = ColumnMotion.ToColumnMask(drivingBandMask, sw);
         double[]? rowW = weightMap?.RowWeight;
         double[]? colW = weightMap?.ColWeight;
+        // coarse level (1/4) needs weights on ITS grid: block-MIN over each 4-row/col
+        // block — conservative: a block counts as weighted-down if ANY member is fixed.
+        double[]? rowWSmall = rowW != null ? DownscaleRowWeights(rowW, sh, DownscaleFactor) : null;
+        double[]? colWSmall = colW != null ? DownscaleColWeights(colW, sw, DownscaleFactor) : null;
 
         if (priorOverlapPx is double prior && prior >= MinOverlapRatio * height && prior <= MaxOverlapRatio * height)
         {
             OverlapResult narrowed = Scan(smallA, smallB, grayA, grayB, sw, sh, width, height,
-                staticMask, staticMaskSmall, colMask, colMaskSmall, rowW, colW,
+                staticMask, staticMaskSmall, colMask, colMaskSmall, rowWSmall, colWSmall, rowW, colW,
                 priorMinK: (int)((prior - 12) / DownscaleFactor),
                 priorMaxK: (int)((prior + 12) / DownscaleFactor));
             if (narrowed.Success)
@@ -88,20 +92,55 @@ public sealed class OverlapDetector
             }
             // prior was wrong or too narrow - fall through to global scan
             OverlapResult global = Scan(smallA, smallB, grayA, grayB, sw, sh, width, height,
-                staticMask, staticMaskSmall, colMask, colMaskSmall, rowW, colW, null, null);
+                staticMask, staticMaskSmall, colMask, colMaskSmall, rowWSmall, colWSmall, rowW, colW, null, null);
             return global.Success
                 ? global with { Note = (global.Note ?? "") + " | prior mismatch, global hit" }
                 : global;
         }
 
         return Scan(smallA, smallB, grayA, grayB, sw, sh, width, height,
-            staticMask, staticMaskSmall, colMask, colMaskSmall, rowW, colW, null, null);
+            staticMask, staticMaskSmall, colMask, colMaskSmall, rowWSmall, colWSmall, rowW, colW, null, null);
+    }
+
+    private static double[]? DownscaleRowWeights(double[] rowWeight, int smallHeight, int factor)
+    {
+        var result = new double[smallHeight];
+        for (int s = 0; s < smallHeight; s++)
+        {
+            double w = 1.0;
+            int start = s * factor;
+            for (int r = start; r < Math.Min(rowWeight.Length, start + factor); r++)
+            {
+                double v = Math.Clamp(rowWeight[r], 0.0, 1.0);
+                w = Math.Min(w, v);
+            }
+            result[s] = w;
+        }
+        return result;
+    }
+
+    private static double[]? DownscaleColWeights(double[] colWeight, int smallWidth, int factor)
+    {
+        var result = new double[smallWidth];
+        for (int s = 0; s < smallWidth; s++)
+        {
+            double w = 1.0;
+            int start = s * factor;
+            for (int c = start; c < Math.Min(colWeight.Length, start + factor); c++)
+            {
+                double v = Math.Clamp(colWeight[c], 0.0, 1.0);
+                w = Math.Min(w, v);
+            }
+            result[s] = w;
+        }
+        return result;
     }
 
     private static OverlapResult Scan(
         byte[] smallA, byte[] smallB, byte[] grayA, byte[] grayB,
         int sw, int sh, int width, int height,
         bool[] staticMask, bool[] staticMaskSmall, bool[] colMask, bool[] colMaskSmall,
+        double[]? rowWeightSmall, double[]? colWeightSmall,
         double[]? rowWeight, double[]? colWeight,
         int? priorMinK, int? priorMaxK)
     {
@@ -127,7 +166,7 @@ public sealed class OverlapDetector
         // descending: on ties prefer the LARGER overlap (more conservative delta)
         for (int k = maxK; k >= minK; k--)
         {
-            double score = RobustRowScore(smallA, smallB, sw, sh, sh, sh - k, 0, k, colStep: 2, TrimWorstRowsPercent, staticMaskSmall, colMaskSmall, rowWeight, colWeight);
+            double score = RobustRowScore(smallA, smallB, sw, sh, sh, sh - k, 0, k, colStep: 2, TrimWorstRowsPercent, staticMaskSmall, colMaskSmall, rowWeightSmall, colWeightSmall);
             if (score < best)
             {
                 second = best;
@@ -428,6 +467,7 @@ public sealed class OverlapDetector
         return wNorm > 0 ? wSum / wNorm : double.MaxValue;
     }
 }
+
 
 
 
