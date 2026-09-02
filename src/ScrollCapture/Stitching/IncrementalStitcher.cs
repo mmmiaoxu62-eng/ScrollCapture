@@ -159,7 +159,7 @@ public sealed class IncrementalStitcher
             // and the paste prior matches it closely. Confidence is visibly degraded
             // and a warning is recorded — but the session keeps moving instead of
             // accumulating rejections at well-known page modes.
-            delta = (int)Math.Round(pd2);
+            delta = Math.Clamp((int)Math.Round(pd2), 1, _height - 1);
             accepted = true;
             overlap = new OverlapResult(true, Math.Max(1, _height - delta), 0.55, "soft-accept near-miss");
             ((List<string>)Warnings).Add($"frame {Steps.Count}: soft-accept (refine {bestRef:F1}>5.5, prior {delta}px)");
