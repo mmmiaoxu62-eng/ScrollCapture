@@ -240,6 +240,7 @@ public partial class MainWindow : Window
             Show();
             return;
         }
+        TempSessionCleaner.CleanupKeepLatest(1); // frames folder cleanup (was never done)
 
         _ = Task.Run(() =>
         {
