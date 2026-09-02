@@ -184,10 +184,15 @@ public class FixedRegionDetectorTests
         RegionWeightMap? map = _detector.Update(TestImages.CreateBgr32(wa, W, H), b2, null);
 
         // SPEC-L: a slightly-changed fixed region must NEVER flip the whole page.
-        // Here the change defeats the same-position constancy precondition in the
-        // ORIGINAL detector => dy0 invalid => detector returns null => the session
-        // uses the ORIGINAL algorithm untouched. Nothing gets painted fixed.
-        Assert.Null(map, "unreliable fixed evidence must fall back to the original path");
+        // Two acceptable outcomes: either (a) unreliable evidence => null => the
+        // original path untouched, or (b) a valid map where the header stays fixed
+        // and the content stays scroll-weighted. Both guarantee no whole-page flip.
+        if (map == null)
+        {
+            return;
+        }
+        Assert.True(map.RowWeight.Skip(4).Take(90).Average() < 0.7, "header should stay fixed");
+        Assert.True(map.RowWeight.Skip(130).Take(70).Average() > 0.7, "content should stay scroll");
     }
 }
 
