@@ -75,6 +75,8 @@ public sealed class FixedRegionDetector
             if (!dy0.Success || dy0.Confidence < 0.7 || dy0.OverlapHeight <= 0 || dy0.OverlapHeight >= height)
             {
                 DebugLastReport = $"baseline rejected: success={dy0.Success} conf={dy0.Confidence:F2} ov={dy0.OverlapHeight} note={dy0.Note}";
+                if ((dy0.Confidence + 10) < 0) { /* keep quiet about common first-pair rejections */ }
+                Utils.Logger.Info("FRD dy0 rejected: " + DebugLastReport);
                 return null;
             }
             _lastDy0 = height - dy0.OverlapHeight;
@@ -253,6 +255,7 @@ public sealed class FixedRegionDetector
         catch (Exception ex)
         {
             DebugLastReport = "EX: " + ex.Message + " @ " + (ex.StackTrace ?? "").Split('\n').FirstOrDefault();
+            Utils.Logger.Info("FRD null: " + DebugLastReport);
             return null; // absolute guaranteed fallback
         }
     }

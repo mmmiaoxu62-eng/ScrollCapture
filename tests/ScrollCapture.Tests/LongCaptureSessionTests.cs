@@ -47,10 +47,13 @@ public class LongCaptureSessionTests
         Assert.Equal(SessionStopReason.ReachedBottom, result.Reason);
         Assert.Equal(6, result.FrameCount);
         Assert.NotNull(result.StitchedImage);
-        // tiny synthetic frames cannot be vision-matched: every additional frame is
-        // duplicate-safety-skipped (never estimated) => canvas == first frame only.
+        // tiny synthetic frames cannot be vision-matched: distinct frames are rejected
+        // (reference advances), the final identical pair is static-skipped => canvas
+        // stays at the first frame only.
         Assert.Equal(FrameHeight, result.StitchedImage!.PixelHeight);
-        Assert.All(result.StitchSteps!.Skip(1), s => Assert.True(s.UsedFallback));
+        var steps = result.StitchSteps!.Skip(1).ToList();
+        Assert.All(steps.Take(steps.Count - 2), s => Assert.True(s.UsedFallback));
+        Assert.All(steps.TakeLast(2), s => Assert.True(s.Skipped));
     }
 
     [Fact]

@@ -133,6 +133,7 @@ public sealed class IncrementalStitcher
         }
 
         OverlapResult overlap = _detector.Detect(_lastFrame, current, priorOverlap, _bandMask, weightMap);
+        Utils.Logger.Info($"stitch pair {Steps.Count}: wm={(weightMap?.Summary ?? "null")} wmConf={(weightMap?.Confidence.ToString("F2") ?? "n/a")} detect=({overlap.Success} {overlap.Note ?? "ok"})");
 
         if (_debugDir != null)
         {
@@ -185,8 +186,10 @@ public sealed class IncrementalStitcher
                     ? $"confidence {overlap.Confidence:F2} below {MinAcceptConfidence}"
                     : $"delta jump {_height - overlap.OverlapHeight}px vs last {_lastDelta}px";
             ((List<StitchStepReport>)Steps).Add(new StitchStepReport(Steps.Count, 0, 0.0, true, false));
-            ((List<string>)Warnings).Add($"overlap rejected ({why}); frame skipped (duplicate-safety)");
-            Utils.Logger.Info($"stitch step {Steps.Count - 1}: REJECTED ({why})");
+            ((List<string>)Warnings).Add($"overlap rejected ({why}); frame skipped (duplicate-safety), reference advanced");
+            // rebaseline: keep comparing against the MOST RECENT frame — a chain that
+            // keeps matching the (unmatchable) first frame never recovers.
+            _lastFrame = current;
             return;
         }
 
