@@ -50,7 +50,7 @@ public sealed class IncrementalStitcher
         _width = firstFrame.PixelWidth;
         _height = firstFrame.PixelHeight;
         _totalHeight = _height;
-        _lastDelta = _height;
+        _lastDelta = 0; // no reference step yet — jump guard & self-prior skip the first pair
         _lastFrame = firstFrame;
         _segments.Add((FrameSimilarity.ToBgr32Buffer(firstFrame), 0, _height));
         ((List<StitchStepReport>)Steps).Add(new StitchStepReport(0, 0, 1.0, false, false));

@@ -92,6 +92,21 @@ public class IncrementalStitcherTests
     }
 
     [Fact]
+    public void Incremental_FirstPairSmallDelta_Accepted()
+    {
+        // regression: first pair with a SMALL delta (WeChat ~100px) must not be killed
+        // by the jump guard that compares against an initial "last delta = frame height".
+        var stitcher = new IncrementalStitcher(5000);
+        stitcher.Start(TestImages.Slice(LongBuffer, W, H, 0));
+        stitcher.Add(TestImages.Slice(LongBuffer, W, H, 200), null); // delta = 100
+
+        BitmapSource? image = stitcher.Finish();
+        Assert.NotNull(image);
+        Assert.Equal(H + 100, image!.PixelHeight);
+        Assert.False(stitcher.Steps[^1].UsedFallback);
+    }
+
+    [Fact]
     public void Incremental_TruncatesAtMaxHeight()
     {
         var stitcher = new IncrementalStitcher(maxImageHeight: 500);
